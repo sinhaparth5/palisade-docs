@@ -55,11 +55,13 @@ jobs:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          PATCHWATCH_URL: ${{ secrets.PATCHWATCH_URL }}
+          PATCHWATCH_TOKEN: ${{ secrets.PATCHWATCH_TOKEN }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: IMAGE_NAME,GHCR_USERNAME,GHCR_TOKEN
+          envs: IMAGE_NAME,GHCR_USERNAME,GHCR_TOKEN,PATCHWATCH_URL,PATCHWATCH_TOKEN
           script: |
             set -e
             printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
@@ -70,5 +72,7 @@ jobs:
               --name coraza-waf-docs \
               --restart unless-stopped \
               -p 127.0.0.1:18085:3000 \
+              -e PATCHWATCH_URL \
+              -e PATCHWATCH_TOKEN \
               "${IMAGE_NAME}:latest"
             docker image prune -f
