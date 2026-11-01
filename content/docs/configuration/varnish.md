@@ -10,8 +10,8 @@ A per-service **Cache** toggle routes that service's traffic through a **Varnish
 WAF. The request path uses two loopback listeners:
 
 ```
-client → coraza-waf-mod (WAF-inspected) → varnishd (127.0.0.1:6081)
-       → coraza-waf-mod cache-return listener (127.0.0.1:6082) → the real backend
+client → palisade (WAF-inspected) → varnishd (127.0.0.1:6081)
+       → palisade cache-return listener (127.0.0.1:6082) → the real backend
 ```
 
 Nothing reaches Varnish or the backend without first passing the full WAF pipeline.
@@ -32,14 +32,15 @@ that port would let clients reach Varnish (and the backend) without passing thro
 ## The VCL is static
 
 Varnish's config (`deploy/varnish/default.vcl`) has exactly **one hardcoded backend** — the
-coraza-waf-mod cache-return listener. Backend selection for a cache miss happens back inside the WAF
+palisade cache-return listener. Backend selection for a cache miss happens back inside the WAF
 process (it resolves the correct backend from the live service registry), **not** in Varnish. So
 adding, editing, or removing a service never requires touching the VCL or reloading `varnishd`.
 
 ## Cache-poisoning defenses
 
 - Spoofable headers (`X-Forwarded-Host`, `X-Original-URL`, etc.) are **stripped** before the request
-  reaches Varnish.
+  reaches Varnish, as is every client-sent `X-Cache-*` header, so only Palisade's own TTL, grace,
+  keep, rule and session values reach the VCL.
 - The cache hash is partitioned by a WAF-set `X-Cache-Service` header that clients cannot control.
 - Both the VCL and the cache-return listener **reject any non-loopback peer**.
 - Responses that set cookies are marked **uncacheable** by default, so private data is never served
@@ -75,6 +76,37 @@ optional whole-second values; blank means "use the VCL default" below):
 | `keep` | `30s` | How much longer *after* grace expires a stale object is kept around for conditional revalidation before being evicted outright. |
 
 A `ttl_floor` greater than a non-zero `ttl_ceiling` is rejected by the save handler.
+
+## Per-path rules
+
+On the service's **Cache** tab, a **Cache rules** box takes one rule per line
+(`cache_rules`, saved with the cache tuning form, `POST /admin/services/cache-tuning/:id`):
+
+```text
+cache /static
+cache /assets/img
+bypass /api
+bypass /cart
+```
+
+- `bypass /path` sends matching requests straight to the backend, skipping Varnish.
+- `cache /path` tells the VCL to cache the path like a static asset: cookies and `Set-Cookie` are
+  dropped, but requests with `Authorization` still pass through uncached.
+- The longest matching prefix wins. Paths are matched on the service path, before any backend base
+  path is added.
+
+## When Varnish fails
+
+Varnish problems fail open. If `varnishd` is down, or Varnish couldn't fetch from the backend (its
+`vcl_backend_error` marks the response), Palisade serves the request straight from the backend and
+logs the cache status as `ERROR`. The cache card has an **Errors** column, and the Logs page has a
+**Cache errors** filter.
+
+The installer raises Varnish's header limits (`http_resp_hdr_len=32k`, `http_req_hdr_len=32k` and
+related workspaces). The 8 KiB default turned backends with large headers into `503`s on static
+assets.
+
+WebSocket upgrade requests always bypass Varnish.
 
 ## Purging
 

@@ -14,10 +14,11 @@ SQLite is the default, while MySQL/MariaDB and Postgres-compatible databases are
 deployments that need an external store.
 
 :::note[About the name]
-The project was previously called **Coraza WAF Mod**. The binary, systemd units, GitHub repository
-and install URL still use `coraza-waf-mod`, so commands on these pages keep that name until the
-project itself is renamed. Palisade is independent and is not affiliated with or endorsed by OWASP or
-the Coraza project.
+The project was called **Coraza WAF Mod** (`coraza-waf-mod`) until v2.5.0. The binary, systemd
+unit, service user, paths and metrics now all use `palisade`, and the GitHub repository is
+[`sinhaparth5/palisade-waf`](https://github.com/sinhaparth5/palisade-waf). Upgrading an old install?
+See [Migrating from coraza-waf-mod](/docs/installation/migrating-to-palisade). Palisade is
+independent and is not affiliated with or endorsed by OWASP or the Coraza project.
 :::
 
 ![Palisade Architecture: User Request → Cloudflare → OS Firewall → Coraza WAF Proxy (with SQLite waf.db and HTMX/Tailwind Admin Dashboard) → Application Service](/img/arch_diagram_white-bg.png)
@@ -26,8 +27,8 @@ the Coraza project.
 
 Palisade sits in front of one or more backend web applications and inspects every incoming
 HTTP request before it is allowed to reach a backend. For each request it runs an ordered
-pipeline of defensive checks — IP blocklist, geo blocking, bot challenge, rate limiting, and full
-WAF rule inspection — and only then reverse-proxies the request to the matching backend. Every
+pipeline of defensive checks — IP blocklist, geo blocking, bot challenge, rate limiting, maintenance
+and waiting-room gates, and full WAF rule inspection — and only then reverse-proxies the request to the matching backend. Every
 decision (blocked or allowed) is logged asynchronously to the configured database. Most policy and
 routing changes are managed live from the built-in dashboard; startup concerns such as the database
 connection remain CLI-controlled.
@@ -40,17 +41,21 @@ startup choice and requires a restart to change.
 ## What's inside
 
 <Cards>
-<Card title="WAF inspection" description="Coraza v3 + OWASP CRS compiled in; blocks SQLi, XSS, RCE, path traversal, and scanners out of the box." href="/docs/security/waf" />
-<Card title="Reverse proxy & multi-app routing" description="Host- and prefix-based routing to many backends from one front door, hot-reloaded with no restart." href="/docs/overview/architecture" />
-<Card title="IP & geo blocking" description="Manual allow/block rules, automatic IP banning, and bundled GeoLite2 country blocking." href="/docs/security/blocking" />
-<Card title="Rate limiting" description="Per-IP token bucket, in-process or Redis-backed for multi-node." href="/docs/configuration/rate-limiting" />
-<Card title="Bot protection" description="Header-based scoring with a JavaScript proof-of-work challenge, plus JA4 TLS fingerprinting and ASN lookup." href="/docs/security/bot-and-fingerprinting" />
-<Card title="Threat-intel auto-sync & webhooks" description="Pull external IP blocklists and forward events." href="/docs/security/threat-intel-webhooks" />
+<Card title="WAF inspection" description="Coraza v3 + OWASP CRS 4.25.2 LTS compiled in, virtual patches for actively exploited CVEs, custom rules from the dashboard, and opt-in response inspection." href="/docs/security/waf" />
+<Card title="API & MCP protection" description="Per-service JSON Schema, OpenAPI positive security model, and a structural guard for Model Context Protocol endpoints." href="/docs/security/api-protection" />
+<Card title="Services & load balancing" description="Host- and prefix-based routing, multiple backends with health checks, host aliases, compression, maintenance mode and a waiting room." href="/docs/configuration/services" />
+<Card title="IP & geo blocking" description="Manual allow/block rules, trusted IPs, honeypot paths, automatic IP banning, and bundled GeoLite2 country blocking." href="/docs/security/blocking" />
+<Card title="Rate limiting" description="Per-IP token bucket (IPv6 keyed by /64), global and per service." href="/docs/configuration/rate-limiting" />
+<Card title="Bot protection" description="Header scoring, a proof-of-work challenge with a Turnstile/hCaptcha fallback, verified crawlers, Web Bot Auth, AI crawler policy, and JA4 fingerprinting." href="/docs/security/bot-and-fingerprinting" />
+<Card title="Login protection" description="Forced challenge and strict throttling on login paths, plus a k-anonymous leaked-password check." href="/docs/security/login-protection" />
+<Card title="Script inventory" description="Report-only Content-Security-Policy that records every third-party script origin per service and alerts on new ones." href="/docs/security/script-inventory" />
+<Card title="Threat-intel auto-sync & webhooks" description="Pull external IP blocklists or a CrowdSec LAPI and forward events." href="/docs/security/threat-intel-webhooks" />
 <Card title="Threat score & adaptive enforcement" description="A composite 0-100 per-IP risk score that can automatically tighten rate limits or force a bot challenge for high-risk clients." href="/docs/security/threat-score" />
 <Card title="Varnish caching" description="An optional per-service cache behind the WAF, so nothing reaches the cache or backend without passing the full pipeline." href="/docs/configuration/varnish" />
-<Card title="Email alerts" description="Daily traffic digest and instant ban-alert emails when the autoban engine blocks a new IP." />
-<Card title="TLS / HTTPS" description="Plain HTTP, automatic Let's Encrypt, or your own certs, mixable per service." href="/docs/configuration/tls" />
-<Card title="Admin dashboard" description="Server-rendered HTMX + Tailwind, session-cookie auth, everything live." href="/docs/configuration/dashboard" />
+<Card title="Email alerts" description="Daily traffic digest, instant ban alerts, new-script alerts, and user invites." href="/docs/configuration/email-alerts" />
+<Card title="TLS / HTTPS" description="Plain HTTP, automatic Let's Encrypt, or your own certs per service, plus HTTP/3 and client-certificate (mTLS) authentication." href="/docs/configuration/tls" />
+<Card title="Admin dashboard" description="Server-rendered HTMX + Tailwind under a strict CSP, site-wide search, everything live." href="/docs/configuration/dashboard" />
+<Card title="Users, roles & SSO" description="Multiple admins with owner/admin/viewer roles, email invites, invite-only OIDC single sign-on, and an audit log." href="/docs/configuration/users-and-sso" />
 <Card title="REST API" description="Bearer-token authenticated /api/v1 endpoints for services, IP rules, and bans, separate from the dashboard session cookie." href="/docs/configuration/rest-api" />
 <Card title="Prometheus metrics & request logging" description="Per-cause counters, async database logging, an optional nginx-style access.log, and a live in-dashboard terminal view." href="/docs/configuration/metrics" />
 </Cards>

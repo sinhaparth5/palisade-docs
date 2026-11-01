@@ -1,17 +1,20 @@
 ---
 sidebar_position: 1
 title: WAF Inspection
-description: Coraza v3 with the OWASP Core Rule Set compiled in, including custom rules and rule exceptions.
-keywords: [waf inspection, coraza, owasp crs, sql injection, xss, rce]
+description: Coraza v3 with the OWASP Core Rule Set compiled in, plus virtual patches, custom rules, rule exceptions, and opt-in response inspection.
+keywords: [waf inspection, coraza, owasp crs, sql injection, xss, rce, virtual patching, cve, custom rules, response inspection]
 ---
 
 
-- Embeds **Coraza v3** with the **OWASP Core Rule Set (CRS)** compiled directly into the binary —
-  there is nothing to download or mount.
+- Embeds **Coraza v3** with the **OWASP Core Rule Set (CRS) v4.25.2 LTS** compiled directly into the
+  binary — there is nothing to download or mount. The rules are vendored in the source tree and kept
+  on the CRS LTS line, so bypass fixes ship with Palisade releases.
 - Out of the box it detects and blocks common attack classes: **SQL injection, XSS, remote code
   execution, path traversal, restricted-file access**, and **known scanner user agents**.
-- Custom `.conf` rule files can be layered **on top of** the CRS by pointing the `--waf-rules` flag
-  at a directory.
+- [Virtual patches](#virtual-patches) block specific actively exploited CVEs before CRS scoring.
+- [Custom rules](#custom-rules) can be written, tested and switched on from the dashboard or the
+  REST API. Custom `.conf` rule files can also be layered on top of the CRS by pointing the
+  `--waf-rules` flag at a directory.
 - WAF rules can be **individually disabled** from the dashboard (the engine reads the disabled-rule
   list from the database and rebuilds itself live), so you can silence a noisy rule without editing
   files or restarting.
@@ -24,20 +27,24 @@ than merely score. This is handled internally.
 
 ## The compiled directive set
 
-Every engine (the shared default one, and any [per-service exception](#per-service-exceptions)
-engine) is built from the same base directive block, with `SecRuleRemoveById` appended only when
-there's a disabled-rule list to apply:
+Every engine (the shared default one, and any [per-service](#per-service-exceptions) engine) is
+built from the same base directive block, with `SecRuleRemoveById` appended only when there's a
+disabled-rule list to apply:
 
 ```apache
+<virtual patch rules>                          # ids 2000000–2099999, before CRS
 Include @coraza.conf-recommended
 Include @crs-setup.conf.example
 Include @owasp_crs/*.conf
 SecRuleEngine On
 SecRequestBodyAccess On
-SecResponseBodyAccess Off
 SecRequestBodyLimit <configured limit, bytes>
 SecRequestBodyLimitAction Reject
 SecDebugLogLevel 0
+SecResponseBodyAccess On
+SecResponseBodyMimeType text/plain text/html text/xml application/json application/xml
+SecResponseBodyLimit 65536
+SecResponseBodyLimitAction ProcessPartial
 SecRuleRemoveById <space-separated rule IDs>   # only present if the disabled-rule list is non-empty
 ```
 
@@ -46,11 +53,12 @@ applies directives in parse order. `SecRuleEngine On` must come **after** the th
 or every rule still matches and
 scores but nothing is ever actually blocked (the request would be logged, but proxied through
 anyway). If you point `--waf-rules` at a directory of custom `.conf` files, they're appended as one
-more `Include "<dir>/*.conf"` directive **after** this block. A custom rule file can therefore use
-CRS's transformation and collection setup, with blocking enabled before the file is parsed.
+more `Include "<dir>/*.conf"` directive **after** this block, followed by any enabled
+[custom rules](#custom-rules) from the dashboard. Both can therefore use CRS's transformation and
+collection setup, with blocking enabled before they are parsed.
 
-`SecResponseBodyAccess Off` disables response-body buffering and inspection. Only requests are
-inspected, avoiding extra WAF latency for large or streamed backend responses.
+Response bodies are only read for services that turn on [response inspection](#response-inspection).
+Everywhere else the request path is unchanged and responses stream through untouched.
 
 ## Request body size limits
 
@@ -80,24 +88,80 @@ enforcement is relaxed for it specifically. Every other header-phase rule, plus 
 stages, still runs. Only the body-inspection gate widens, not the rest of the pipeline.
 :::
 
-## JSON request-body schema validation
+## API schemas and MCP endpoints
 
-A per-service **JSON Schema** can be attached to validate JSON request bodies beyond what CRS's
-generic rules check. This is useful for a REST API where you already know the exact shape a valid
-request body takes.
+Per-service JSON Schema validation, the OpenAPI positive security model and the MCP endpoint guard
+are covered in [API & MCP Protection](/docs/security/api-protection).
 
-Set it from a service's Manage panel, or `POST {admin path}/services/schema/:id` with `schema` (the
-JSON Schema text) and `mode`:
+## Virtual patches
+
+Palisade ships a small pack of **virtual patches**: one precise rule per actively exploited CVE,
+matched on the request detail from the vendor advisory or fix. They load **before** CRS, so a match
+denies under its own rule id (in the range `2000000`–`2099999`) rather than as a CRS anomaly score.
+Autoban counts every virtual patch hit as a critical block.
+
+| CVE | Product |
+|---|---|
+| CVE-2016-3081 | Apache Struts `method:` prefix OGNL injection (S2-032) |
+| CVE-2022-22965 | Spring4Shell |
+| CVE-2022-26134 | Confluence OGNL injection |
+| CVE-2023-22515 | Confluence setup takeover |
+| CVE-2024-27198 | TeamCity authentication bypass |
+| CVE-2024-3400 | PAN-OS GlobalProtect `SESSID` traversal |
+| CVE-2024-4577 | PHP-CGI argument injection |
+| CVE-2025-11953 | React Native Metro `/open-url` command injection |
+| CVE-2025-29927 | Next.js middleware bypass |
+| CVE-2025-32432 | Craft CMS `generate-transform` code injection |
+| CVE-2025-49113 | Roundcube `_from` deserialization |
+| CVE-2026-33017 | Langflow public flow code injection |
+
+The **Virtual Patches** card on the WAF Rules page shows each patch, its hit count and per-service
+status. Turning one off is an ordinary [rule exception](#disabling-a-noisy-rule), global or for one
+service.
+
+## Custom rules
+
+The **Custom Rules** card on the WAF Rules page is an editor for your own ModSecurity rules:
+
+1. Write one or more `SecRule` / `SecAction` directives. Rule ids must be in `1000000`–`1999999`
+   and unique across your custom rules.
+2. Pick a **scope**: all services, or one service.
+3. Optionally add a note, then **Dry run** to replay recent traffic through it (see
+   [below](#dry-run-candidate-rules)) or **Save** to compile it in.
+
+Each rule is compiled on its own before it is saved, so a broken rule is rejected with an error
+instead of breaking the WAF. Saved rules can be toggled, edited and removed from the list below the
+editor (`POST /admin/waf-rules/custom`, `POST /admin/waf-rules/custom/:id/toggle`,
+`DELETE /admin/waf-rules/custom/:id`). A service-scoped rule gives that service its own engine, the
+same way a [per-service exception](#per-service-exceptions) does.
+
+The same rules are available over the REST API at `/admin/api/v1/waf-rules/custom` (`GET`, `POST`,
+`PUT /:id`, `DELETE /:id`) with a JSON body of `rule`, `service_name`, `note` and `enabled`. See
+[REST API](/docs/configuration/rest-api).
+
+## Response inspection
+
+Per service, Palisade can run CRS's outbound rules (`950000`–`958999`) on backend responses to catch
+leaked SQL errors, stack traces, directory listings and source code. Set it on the service's Schema
+tab (`POST /admin/services/responses/:id`):
 
 | Mode | Effect |
 |---|---|
-| `off` | Validation disabled (default). An empty schema also disables it. |
-| `log` | A mismatching body is recorded in the request log but **not blocked** — use this to check a schema against real traffic before enforcing it. |
-| `enforce` | A mismatching body is rejected with `400`. |
+| *(off)* | Default. Responses are never read. |
+| `log` | A match is logged as `response_leak:log` with the rule id; the response is delivered. |
+| `block` | A match replaces the response with a `502`. |
 
-A malformed schema is rejected at save time, before it reaches the database, so a bad schema can't
-later break a WAF reload. The schema is compiled once per engine build (on save, and on every
-[per-service exception](#per-service-exceptions) rebuild or `SIGHUP`), never per request.
+Only identity-encoded HTML, text, JSON and XML bodies up to **64 KiB** are inspected (about
+0.55 ms per KiB). Binary bodies, event streams, upgrades, `HEAD` requests and larger bodies stream
+through untouched. To see plain bodies, Palisade asks the backend for an uncompressed response;
+[compression](/docs/configuration/services#compression) toward the client still follows what the
+client asked for. A blocked response doesn't count against the backend's health and isn't retried.
+
+## Verdict cache
+
+Each engine keeps a short cache of recent verdicts (5-second TTL, 4096 entries) so a burst of
+identical requests is inspected once. The cache key covers the client IP, method, host, raw path and
+query, every header and the body. Requests carrying `Cookie` or `Authorization` are never cached.
 
 ## Disabling a noisy rule
 
@@ -140,7 +204,7 @@ and click **Create exception**. See [Request logs](/docs/configuration/dashboard
 
 ## Dry-run candidate rules
 
-The **Dry-run Rules** card on the WAF Rules page (`POST /admin/waf-rules/dry-run`) lets you test rules
+The **Dry run** button in the Custom Rules card (`POST /admin/waf-rules/dry-run`) lets you test rules
 before deploying them. Paste candidate rules and replay the last N logged requests (up to 2000)
 through two throwaway engines: the current global rules, and the current rules plus your candidates.
 The card lists every request whose verdict would change.
@@ -155,4 +219,5 @@ replay.
 ## WAF detects without blocking
 
 Make sure you're on a normal build (blocking is enabled after the CRS includes by design), and check
-whether the specific rule was disabled from the dashboard.
+whether the specific rule was disabled from the dashboard, globally or for that service. Also check
+the client isn't on the [trusted IPs](/docs/security/blocking#trusted-ips) list, which skips the WAF.

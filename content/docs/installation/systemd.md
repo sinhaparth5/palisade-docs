@@ -6,22 +6,26 @@ keywords: [systemd, service, linux, execstart, journalctl]
 ---
 
 
-The installer writes `/etc/systemd/system/coraza-waf-mod.service` similar to:
+The installer writes `/etc/systemd/system/palisade.service` similar to:
 
 ```ini
 [Unit]
 Description=Palisade (WAF + reverse proxy)
+Documentation=https://github.com/sinhaparth5/palisade-waf
 After=network.target
 
 [Service]
 Type=simple
-User=coraza-waf-mod
-Group=coraza-waf-mod
-WorkingDirectory=/var/lib/coraza-waf-mod
-ExecStart=/usr/local/bin/coraza-waf-mod --listen :80 --listen-tls :443 \
-  --db-driver sqlite --db '/var/lib/coraza-waf-mod/waf.db' \
-  --certs /var/lib/coraza-waf-mod/certs --retention 30 \
-  --db-key-file /etc/coraza-waf-mod/db.key
+User=palisade
+Group=palisade
+WorkingDirectory=/var/lib/palisade
+ExecStart=/usr/local/bin/palisade --listen :80 --listen-tls :443 \
+  --db-driver sqlite --db '/var/lib/palisade/waf.db' \
+  --certs /var/lib/palisade/certs --retention 30 \
+  --db-key-file /etc/palisade/db.key \
+  --access-log /var/log/palisade/access.log $PALISADE_FLAGS
+EnvironmentFile=-/etc/palisade/palisade.env
+LogsDirectory=palisade
 Restart=on-failure
 RestartSec=5s
 
@@ -39,11 +43,23 @@ WantedBy=multi-user.target
 Common operations:
 
 ```bash
-sudo systemctl status coraza-waf-mod        # status
-sudo systemctl restart coraza-waf-mod       # restart (e.g. after changing flags)
-sudo journalctl -u coraza-waf-mod -f        # follow logs
-sudo systemctl list-timers | grep coraza    # see the prune timer
+sudo systemctl status palisade        # status
+sudo systemctl restart palisade       # restart (e.g. after changing flags)
+sudo journalctl -u palisade -f        # follow logs
+sudo systemctl list-timers | grep palisade    # see the prune timer
 ```
 
-To change flags (listen addresses, trusted proxies, retention), edit the `ExecStart` line, then
-`sudo systemctl daemon-reload && sudo systemctl restart coraza-waf-mod`.
+## Adding your own flags
+
+Don't edit the unit file: the installer rewrites it on every upgrade. Put extra flags (trusted
+proxies, trusted crawlers, a GeoIP override, the ClickHouse warehouse, HTTP/3) on the
+`PALISADE_FLAGS=` line of `/etc/palisade/palisade.env`. The installer creates that file once from a
+commented template and never overwrites it.
+
+```bash
+# /etc/palisade/palisade.env
+PALISADE_FLAGS=--trusted-proxies 10.0.0.0/8,192.168.0.0/16 --prune-interval 24h
+```
+
+Then `sudo systemctl restart palisade`. See [Command-Line Interface](/docs/configuration/cli) for
+every flag.

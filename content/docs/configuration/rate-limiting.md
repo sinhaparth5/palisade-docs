@@ -1,14 +1,14 @@
 ---
 sidebar_position: 4
 title: Rate Limiting
-description: Per-IP token-bucket limiting with an in-process or Redis backend, plus per-service limits.
-keywords: [rate limiting, token bucket, redis, per-ip limiting]
+description: Per-client token-bucket limiting, global and per service, with IPv6 clients keyed by /64.
+keywords: [rate limiting, token bucket, per-ip limiting, ipv6]
 ---
 
 
 Palisade applies **per-client-IP token-bucket** limiting globally ahead of geo/WAF inspection,
-plus optional **per-service** limits. There are two interchangeable backends, chosen from the
-dashboard (**Settings → Rate limiting**); switching is a hot reload with no restart.
+plus optional **per-service** limits. Configure it from **Settings → Rate limiting**; changes are a hot
+reload with no restart.
 
 ## How the token bucket works
 
@@ -25,21 +25,23 @@ rest until tokens refill.
 The **global limiter is disabled by default** (no rate limiting at all until you opt in from
 Settings).
 
-## In-process limiter (default backend)
+## How state is kept
 
-A per-IP token bucket lives in memory; its state is snapshotted to SQLite **every 10 seconds** and
-restored on startup, so limits survive restarts. Idle buckets (no traffic for 5 minutes) are reclaimed
-by a background janitor so the bucket map stays bounded despite an unbounded number of distinct
-client IPs over time. This is the right choice for a single node.
+A token bucket per client lives in memory; its state is snapshotted to the database **every 10
+seconds** and restored on startup, so limits survive restarts. Idle buckets (no traffic for 5 minutes)
+are reclaimed by a background janitor so the bucket map stays bounded despite an unbounded number of
+distinct client IPs over time.
 
-## Redis backend (multi-node)
+Each node keeps its own buckets. The Redis backend that used to share one limit across a cluster was
+removed in v2.10.3, and leftover Redis settings are deleted from the database on startup.
 
-Select Redis in the dashboard and provide the address + password. The limiter becomes an atomic
-Redis Lua-script token bucket shared across all WAF instances, so a cluster enforces one combined
-limit. If Redis becomes unreachable, the backend **fails open** (it allows traffic rather than
-blocking everything).
+## IPv6 clients are keyed by /64
 
-Use **Test connection** in Settings to verify Redis reachability **before** saving.
+An IPv4 address is its own bucket. An IPv6 client is keyed by its **/64** prefix, because one host
+usually owns a whole /64 and can rotate through it freely. The same key is used for
+[autoban](/docs/security/blocking#automatic-ip-banning) scoring and the threat-score cache, so a
+rotating client can't reset its score or slip out of a ban. Logs and manual IP rules keep the exact
+address.
 
 ## Configuration reference
 
@@ -48,32 +50,28 @@ Use **Test connection** in Settings to verify Redis reachability **before** savi
 | Enabled | `rl_enabled` | `ratelimit_enabled` | Off by default. |
 | Requests/sec | `rl_rps` | `ratelimit_rps` | Sustained rate once burst is spent. |
 | Burst | `rl_burst` | `ratelimit_burst` | Max tokens a bucket can hold; effectively the allowed instantaneous spike. |
-| Backend | `rl_backend` | *(derived, see below)* | `memory` or `redis`. |
-| Redis address | `rl_redis_addr` | `redis_addr` | `host:port`. |
-| Redis password | `rl_redis_password` | `redis_password` | Empty if Redis has no auth. |
 
-Saved via `POST /admin/settings/ratelimit`; test Redis reachability first with
-`POST /admin/settings/ratelimit/test` (same `rl_redis_addr`/`rl_redis_password` fields, doesn't
-persist anything).
-
-:::note[There's no standalone "backend" flag in storage]
-Startup and every reload derive the backend from whether a Redis address is currently stored, not
-from a separate persisted choice: `rl_backend=redis` **pings Redis synchronously** during the save
-(rejecting the save outright if it's unreachable) and then stores the address; `rl_backend=memory`
-clears the stored Redis address. So "the backend" is really just "is `redis_addr` set or empty" at
-read time.
-:::
+Saved via `POST /admin/settings/ratelimit`.
 
 ## Per-service limits
 
-Each service can carry its own limiter (always in-process — per-service distribution isn't needed).
-Set it from the service's Manage panel (`rps` + `burst`), or in the add wizard. These run **after**
+Each service can carry its own limiter. Set it from the service's Manage panel (`rps` + `burst`), or in the add wizard. These run **after**
 the global limit, so a request must clear both. Per-service limits are never affected by
 [adaptive enforcement](/docs/security/threat-score#adaptive-enforcement) — that only scales the
 global limiter.
 
+## Login paths
+
+Services with [login protection](/docs/security/login-protection) get a separate, fixed limiter on
+their login paths: a burst of 5 submissions, then one every 12 seconds per client. It applies to
+non-`GET`/`HEAD` requests only and logs as `rate_limited:login`.
+
+## Trusted IPs
+
+Addresses on the [trusted IPs](/docs/security/blocking#trusted-ips) list skip both rate limiters.
+
 ## Ordering
 
-Global rate limiting runs **early** in the pipeline (after the IP blocklist, before geo and WAF), so
-throttled clients are rejected cheaply. See [Architecture](/docs/overview/architecture) for the full
+Rate limiting runs after the IP blocklist, geo blocklist and bot challenge, and before the
+maintenance/waiting-room gate and the WAF, so throttled clients are rejected cheaply. See [Architecture](/docs/overview/architecture) for the full
 pipeline order.

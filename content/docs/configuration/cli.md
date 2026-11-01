@@ -18,7 +18,9 @@ Start the WAF/proxy/dashboard by running the binary with any of these flags:
 |---|---|---|
 | `--listen` | `:8080` | HTTP listen address. |
 | `--listen-tls` | *(empty)* | HTTPS listen address. Empty = HTTP only. |
-| `--trusted-proxies` | *(empty)* | Comma-separated CIDRs allowed to supply `X-Forwarded-For` / `X-Real-IP`. |
+| `--listen-h3` | *(empty)* | HTTP/3 (QUIC) UDP listen address, e.g. `:443`. Needs `--listen-tls`. Services opt in individually. See [HTTP/3](/docs/configuration/tls#http3-quic). |
+| `--trusted-proxies` | *(empty)* | Comma-separated IPs or CIDRs allowed to supply `X-Forwarded-For` / `X-Real-IP`. A bare IP counts as a /32 or /128. See [Trusted Proxy](/docs/security/trusted-proxy). |
+| `--trusted-crawlers` | *(empty)* | Extra crawlers that skip the bot challenge, pinned by source: `ua=cidr[,cidr];ua2=ip`, or `ua=https://host` to accept that host's Web Bot Auth signatures. See [Verified crawlers](/docs/security/bot-and-fingerprinting#verified-crawlers). |
 | `--db` | `waf.db` | SQLite path, MySQL DSN, or Postgres connection URL/DSN. |
 | `--db-driver` | `sqlite` | Database backend: `sqlite`, `mysql`/`mariadb`, or `postgres` plus the `postgresql`, `cockroachdb`, and `neon` aliases. |
 | `--db-key-file` | *(empty)* | File containing at least 32 bytes of high-entropy key material (raw, hex, or base64) used to encrypt stored secrets with AES-256-GCM. Empty keeps secrets plaintext. |
@@ -30,25 +32,29 @@ Start the WAF/proxy/dashboard by running the binary with any of these flags:
 | `--warehouse-url` | *(empty)* | ClickHouse HTTP endpoint to mirror telemetry to, e.g. `http://clickhouse:8123/?database=waf`. Empty = disabled. See [ClickHouse Analytics](/docs/configuration/analytics). |
 | `--tls-cert` | *(empty)* | PEM certificate file for the HTTPS fallback (self-signed). |
 | `--tls-key` | *(empty)* | Matching PEM private key for `--tls-cert`. |
-| `--access-log` | *(empty)* | nginx-combined-format access log file path. Empty = disabled. `install.sh` sets it to `/var/log/coraza/access.log`. See [Access Log](/docs/configuration/access-log). |
+| `--access-log` | *(empty)* | nginx-combined-format access log file path. Empty = disabled. `install.sh` sets it to `/var/log/palisade/access.log`. See [Access Log](/docs/configuration/access-log). |
 | `--access-log-max-size-mb` | `100` | Rotate the access log after it reaches this many MB. |
 | `--access-log-max-backups` | `5` | Number of rotated access log files (`access.log.1`, `.2`, …) to keep. |
 
 Example (HTTP + HTTPS, behind a known load balancer):
 
 ```bash
-./coraza-waf-mod \
+./palisade \
   --listen :80 \
   --listen-tls :443 \
-  --tls-cert /var/lib/coraza-waf-mod/certs/self-signed.crt \
-  --tls-key  /var/lib/coraza-waf-mod/certs/self-signed.key \
+  --tls-cert /var/lib/palisade/certs/self-signed.crt \
+  --tls-key  /var/lib/palisade/certs/self-signed.key \
   --trusted-proxies 10.0.0.0/8,192.168.0.0/16 \
+  --trusted-crawlers "dev-portal-uptime=198.51.100.7" \
   --db-driver sqlite \
-  --db /var/lib/coraza-waf-mod/waf.db \
-  --db-key-file /etc/coraza-waf-mod/db.key \
-  --certs /var/lib/coraza-waf-mod/certs \
+  --db /var/lib/palisade/waf.db \
+  --db-key-file /etc/palisade/db.key \
+  --certs /var/lib/palisade/certs \
   --retention 30
 ```
+
+On an installer-managed host, put extra flags in `/etc/palisade/palisade.env` instead of editing the
+unit. See [Adding your own flags](/docs/installation/systemd#adding-your-own-flags).
 
 ## Subcommands
 
@@ -57,13 +63,14 @@ Each subcommand does one thing and exits (it does **not** start the server).
 ### `setup` — seed admin credentials and optional ACME config
 
 ```bash
-coraza-waf-mod setup --db-driver sqlite --db waf.db --admin-email you@example.com \
+palisade setup --db-driver sqlite --db waf.db --admin-email you@example.com \
   [--domain example.com] [--acme-email contact@example.com]
 # Password is read from stdin (one line).
 ```
 
 - **Idempotent for credentials:** if an admin already exists, the credential step is skipped — safe
-  to re-run on upgrade without overwriting a changed password.
+  to re-run on upgrade without overwriting a changed password. The seeded account is an **owner**;
+  add more people from the dashboard ([Users, Roles & SSO](/docs/configuration/users-and-sso)).
 - If `--domain` is given, the domain and ACME contact email are stored so Let's Encrypt can issue a
   certificate. `--acme-email` defaults to the admin email if omitted.
 - Use the same `--db-driver` and `--db` values that the server will use. Supported driver aliases are
@@ -72,7 +79,7 @@ coraza-waf-mod setup --db-driver sqlite --db waf.db --admin-email you@example.co
 ### `gencert` — generate a self-signed certificate
 
 ```bash
-coraza-waf-mod gencert --cert cert.pem --key key.pem \
+palisade gencert --cert cert.pem --key key.pem \
   --hosts 203.0.113.10,waf.internal [--days 3650]
 ```
 
@@ -82,7 +89,7 @@ coraza-waf-mod gencert --cert cert.pem --key key.pem \
 ### `prune` — delete old request logs
 
 ```bash
-coraza-waf-mod prune --db-driver sqlite --db waf.db --retention 30 --vacuum
+palisade prune --db-driver sqlite --db waf.db --retention 30 --vacuum
 ```
 
 - Opens the DB, deletes expired sessions and request rows older than the retention window **in
@@ -95,7 +102,7 @@ coraza-waf-mod prune --db-driver sqlite --db waf.db --retention 30 --vacuum
 ### `healthcheck` — probe a running server
 
 ```bash
-coraza-waf-mod healthcheck --url http://127.0.0.1:8080/_cz/readyz
+palisade healthcheck --url http://127.0.0.1:8080/_cz/readyz
 ```
 
 - Requests the readiness URL (default `http://127.0.0.1:8080/_cz/readyz`) and exits non-zero unless
@@ -105,18 +112,18 @@ coraza-waf-mod healthcheck --url http://127.0.0.1:8080/_cz/readyz
 ### `build-dsn` — safely construct an external database DSN
 
 ```bash
-printf '%s\n' "$DB_PASSWORD" | coraza-waf-mod build-dsn \
+printf '%s\n' "$DB_PASSWORD" | palisade build-dsn \
   --driver postgres --host db.example.com --port 5432 \
-  --username coraza --dbname coraza --sslmode require
+  --username palisade --dbname palisade --sslmode require
 ```
 
 The command prints a driver-correct DSN with credentials escaped safely. The password is read from
 stdin (an empty line is allowed), never from a flag. Optional `--extra` accepts query parameters such
-as `connect_timeout=10&application_name=coraza`. MySQL defaults to port `3306`; Postgres defaults to
+as `connect_timeout=10&application_name=palisade`. MySQL defaults to port `3306`; Postgres defaults to
 `5432`.
 
 ### `version`
 
 ```bash
-coraza-waf-mod version        # or: coraza-waf-mod --version
+palisade version        # or: palisade --version
 ```

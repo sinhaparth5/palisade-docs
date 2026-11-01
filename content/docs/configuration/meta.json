@@ -1,9 +1,11 @@
 {
   "title": "Configuration",
-  "description": "CLI flags, dashboard controls, TLS, rate limiting, logs, and metrics.",
+  "description": "CLI flags, dashboard, services, users, TLS, rate limiting, caching, logs, and metrics.",
   "pages": [
     "cli",
     "dashboard",
+    "services",
+    "users-and-sso",
     "rest-api",
     "tls",
     "rate-limiting",

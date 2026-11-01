@@ -8,7 +8,18 @@ keywords: [admin dashboard, htmx, tailwind, services, ip rules, settings]
 
 The dashboard lives at `/admin` behind session-cookie login. Changes take effect without a restart.
 Each page uses HTMX to replace only the affected part of the page. The sections below cover the
-dashboard controls and their HTTP routes.
+dashboard controls and their HTTP routes. What you can change depends on your
+[role](/docs/configuration/users-and-sso#roles); viewers see every page read-only.
+
+**Search.** The search button in the top bar (or `Ctrl+K`, `Cmd+K` or `/`) searches every settings
+card and page section you have access to, plus live records: services, IP and geo rules,
+certificates, threat-intel feeds and custom WAF rules. Use the arrow keys and Enter to jump straight
+to the match (`GET /admin/search?q=`).
+
+**Theme.** The dashboard uses the v3 "ledger" theme. A sun/moon toggle in the sidebar switches to
+dark mode; the choice is saved in the browser and does not follow the OS setting. The admin pages
+are served under a strict Content-Security-Policy with every script, font and stylesheet bundled
+into the binary.
 
 :::info[Dashboard changes]
 Each form writes its change to `waf.db` and then **hot-reloads** the relevant subsystem (registry,
@@ -47,11 +58,21 @@ blocklist, geo, WAF engine, or rate limiter). No file edit or restart is require
 - **Per-service TLS requires a host-matched service.** Prefix services can't have their own
   certificate (there's no SNI host to key it on) — the TLS panel will say so.
 
-**Edit / manage a service:** use the **Manage** controls on a row to set per-service TLS (below),
-per-service **bot mode** (`POST /admin/services/bot/:id` with `bot_mode` = `inherit`/`always`/`off`),
-per-service **rate limit** (`POST /admin/services/ratelimit` with `service_id`, `rps`, `burst`), and
-the **Cache** toggle, which routes this service through Varnish when the global Varnish switch is on
-(see [Varnish Cache Integration](/docs/configuration/varnish)).
+**Edit / manage a service:** the **Manage** button on a row opens the service modal. Its tabs:
+
+| Tab | What's on it |
+|---|---|
+| **Rate Limit** | Per-service `rps` and `burst` (`POST /admin/services/ratelimit`). See [Rate Limiting](/docs/configuration/rate-limiting#per-service-limits). |
+| **Backends** | Extra backends, load-balancing policy and health checks. See [Services & Load Balancing](/docs/configuration/services#multiple-backends-and-health-checks). |
+| **Hosts** | Extra hostnames and a canonical redirect. See [Extra hostnames](/docs/configuration/services#extra-hostnames). |
+| **Availability** | Maintenance mode and the waiting room. See [Maintenance mode](/docs/configuration/services#maintenance-mode). |
+| **Bot** | Bot mode (`inherit`/`always`/`off`, `POST /admin/services/bot/:id`), AI crawler policy, login protection and the leaked password check. See [Bot Protection](/docs/security/bot-and-fingerprinting) and [Login Protection](/docs/security/login-protection). |
+| **Schema** | JSON Schema, OpenAPI, MCP guard, script inventory and response inspection. See [API & MCP Protection](/docs/security/api-protection). |
+| **Cache** | Varnish caching, session-aware caching, tuning, per-path rules and compression. See [Varnish](/docs/configuration/varnish). |
+| **TLS** | Certificates (below), HTTP/3 and client certificates. See [TLS / HTTPS](/docs/configuration/tls). |
+| **Uploads** | Large JavaScript uploads. See [WAF Inspection](/docs/security/waf#request-body-size-limits). |
+
+Each service row shows tags for the features turned on and a health dot per backend.
 
 **Delete a service:** the trash control issues `DELETE /admin/services/:id` and rebuilds the
 registry.
@@ -97,11 +118,13 @@ current page in one query.
 #### Automatic banning
 
 The **Automatic banning** card on the IP Rules page configures the autoban engine. The engine watches
-blocked events and permanently bans IPs that cross a score threshold.
+events and bans clients that cross a score threshold, for a configurable number of hours.
 
 1. Toggle **Enable automatic banning** to activate it.
-2. Set **Score threshold** (default 10) and **Window (minutes)** (default 10).
-3. Click **Save**. Changes apply immediately via hot reload.
+2. Set **Score threshold** (default 10), **Window (minutes)** (default 10) and **Ban (hours)**
+   (default 24, `0` = never expires).
+3. Optionally turn on **Score bad responses** and set the status codes and points per hit.
+4. Click **Save**. Changes apply immediately via hot reload.
 
 Auto-banned IPs appear in the Active IP Rules list with an amber **Auto** badge and a machine-stamped
 ban reason note. The autoban engine never overwrites admin-added **allow** rules.
@@ -109,7 +132,14 @@ ban reason note. The autoban engine never overwrites admin-added **allow** rules
 See [Automatic IP Banning](/docs/security/blocking#automatic-ip-banning) for scoring details and
 threshold guidance.
 
-**Routes:** `POST /admin/ip-rules/autoban` (`autoban_enabled`, `autoban_threshold`, `autoban_window`).
+**Routes:** `POST /admin/ip-rules/autoban`.
+
+#### Honeypots
+
+The **Honeypots** card takes a list of paths that only scanners request. A client that gets a 404
+on one is banned on the spot. See [Honeypot paths](/docs/security/blocking#honeypot-paths).
+
+**Routes:** `POST /admin/ip-rules/honeypots`.
 
 #### Adaptive enforcement
 
@@ -242,14 +272,17 @@ choice is remembered for the browser session.
 |---|---|---|
 | App / service | `app` | `api` |
 | Status class | `status` | `2xx`, `4xx`, `5xx` |
+| Cache errors | (filter button) | requests Varnish failed to fetch, see [Varnish](/docs/configuration/varnish#when-varnish-fails) |
 | From (datetime) | `from` | `2026-06-01T09:00` |
 | To (datetime) | `to` | `2026-06-29T17:30` |
 | Page | `page` | `2` |
 
 (`from`/`to` use the HTML `datetime-local` format `YYYY-MM-DDTHH:MM`.)
 
-**Detail view.** Click a row to open `GET /admin/logs/:id` — full request headers, the matched WAF
-rule (if any), the block reason/stage, status, and the resolved country/ASN. When a WAF rule matched,
+**Request inspector.** Click a row to open `GET /admin/logs/:id` in the request inspector, docked to
+the right of the table on wide screens and as a sheet on smaller ones. It groups the record, path,
+security decision, client (country, ASN, JA4), threat score, bot signals and request headers.
+`Authorization`, `Cookie`, `X-Api-Key` and `X-Auth-Token` values are stored as `[redacted]`. When a WAF rule matched,
 a **"Was this rule correct?"** row lets you mark it **False positive** or **Correct block**
 (`POST /admin/logs/feedback/:id` with `false_positive`) — this feeds the WAF Rules page's
 **Suggested Exceptions** card described above under **Blocks**; marking doesn't change the request's
@@ -273,14 +306,22 @@ and streams the matching rows as newline-delimited JSON (`.ndjson`).
 
 ## Settings
 
-**Page:** `/admin/settings` · **Purpose:** admin account, security subsystems, and integrations.
+**Page:** `/admin/settings` · **Purpose:** your account, users, security subsystems, and
+integrations. Cards are grouped into sections with jump links; owner and admin cards are hidden from
+roles that can't use them.
 
 ![Settings page showing the Account section with current email, new email, new password, and confirm password fields, plus the Database backup download button](/img/docs/docs_settings.png)
 
-**Change admin credentials.** Enter your **current password**, then a **new email** and/or **new
+**Change your credentials.** Enter your **current password**, then a **new email** and/or **new
 password** (typed twice). Submitting (`POST /admin/settings/credentials` with `current_password`,
 `new_email`, `new_password`, `confirm_password`) re-hashes the password with bcrypt and invalidates
 old sessions.
+
+**Users and single sign-on.** Owners add users, change roles, send invites and configure OIDC here.
+See [Users, Roles & SSO](/docs/configuration/users-and-sso).
+
+**Audit log.** A paged list of every change made through the dashboard and the API. See
+[Audit log](/docs/configuration/users-and-sso#audit-log).
 
 **Two-factor authentication.** The TOTP card enrolls any RFC 6238 authenticator by QR code or manual
 key and requires a valid code before enabling 2FA. Ten one-time backup codes are shown once and
@@ -298,8 +339,9 @@ secure context (HTTPS with a real hostname, or `localhost`); the card shows a wa
 form when the admin panel is reached over plain HTTP or a bare IP. **Remove** a passkey with its row's
 delete control (`DELETE /admin/settings/passkeys/:id`).
 
-**Registered devices.** Palisade keeps **one live admin session at a time**: signing in on a new
-device immediately signs the previous one out. The **Registered devices** card lists every session,
+**Registered devices.** Palisade keeps **one live session per user**: signing in on a new device
+immediately signs your previous one out. Signing in again from the same IP and browser (even after a
+browser update or a lost device cookie) replaces the old row instead of adding a duplicate. The **Registered devices** card lists every session,
 live or historical, with its browser/OS, resolved country, IP, and last-active time. A live session's
 row control **signs it out**; an already signed-out row's control **deletes it from history** instead,
 since there's nothing left to revoke. History is kept for **30 days**, so you can review where the
@@ -316,14 +358,20 @@ history list.
 - **Threshold** — the anomaly score above which a client is challenged.
 - **TTL** — how long a solved bypass cookie stays valid (seconds).
 
-Per-service overrides (`inherit`/`always`/`off`) are set from each service's Manage panel. See
-[Bot Protection](/docs/security/bot-and-fingerprinting).
+- **CAPTCHA fallback** — Turnstile or hCaptcha for browsers that fail the proof of work
+  (`captcha_provider`, `captcha_site_key`, `captcha_secret`).
+- **AI crawlers** — the global `allow`/`challenge`/`block` default for the training, search and user
+  categories (`ai_training`, `ai_search`, `ai_user`).
 
-**Rate limiting backend.** Choose the backend and (for Redis) its connection
-(`POST /admin/settings/ratelimit` with `rl_backend` = `memory`/`redis`, `rl_redis_addr`,
-`rl_redis_password`). Use **Test connection** (`POST /admin/settings/ratelimit/test`) to verify
-Redis reachability **before** saving. Switching backends is a hot reload. See
-[Rate Limiting](/docs/configuration/rate-limiting).
+Per-service overrides (`inherit`/`always`/`off`, and AI crawler policy) are set from each service's
+Bot tab. See [Bot Protection](/docs/security/bot-and-fingerprinting).
+
+**Trusted IPs.** IPs and CIDRs that skip every blocking stage, including the WAF
+(`POST /admin/settings/trusted-ips`). See [Trusted IPs](/docs/security/blocking#trusted-ips).
+
+**Rate limiting.** Turn the global limiter on and set `rps` and `burst`
+(`POST /admin/settings/ratelimit` with `rl_enabled`, `rl_rps`, `rl_burst`). Changes are a hot
+reload. See [Rate Limiting](/docs/configuration/rate-limiting).
 
 **ACME email.** Set the Let's Encrypt contact email (`POST /admin/settings/acme-email` with
 `email`). This must be set before per-service auto-issue or global ACME will work.
@@ -331,7 +379,8 @@ Redis reachability **before** saving. Switching backends is a hot reload. See
 **Webhooks.** Configure generic JSON, Slack Block Kit, or Discord embed delivery
 (`POST /admin/settings/webhook` with `webhook_destination_type`, `webhook_url`, `webhook_secret`,
 `webhook_enabled=1`, and one or more `webhook_events` checkboxes). If no events are selected it
-defaults to `blocked`. The generic secret is sent verbatim in `X-WAF-Secret`; it is not an HMAC.
+defaults to `blocked`. The generic payload is signed; see
+[Webhooks](/docs/security/threat-intel-webhooks#webhook-event-delivery).
 Slack and Discord use incoming webhook URLs and ignore that header. **Send test alert** posts a
 synthetic block using the saved settings, even when delivery is disabled. See
 [Threat Intel & Webhooks](/docs/security/threat-intel-webhooks).
@@ -340,7 +389,8 @@ synthetic block using the saved settings, even when delivery is disabled. See
 a **URL** to a plain-text IP/CIDR list, and a sync **interval (hours)** (`POST /admin/threat-intel`).
 Each row can be **toggled** on/off (`POST /admin/threat-intel/:id/toggle`), **synced now**
 (`POST /admin/threat-intel/:id/sync`), or **deleted** (`DELETE /admin/threat-intel/:id`). Synced IPs
-flow into the IP blocklist automatically.
+flow into the IP blocklist automatically. A separate form adds a **CrowdSec LAPI** source
+(`POST /admin/threat-intel/crowdsec`). See [Threat Intel](/docs/security/threat-intel-webhooks).
 
 **Varnish Cache.** Global on/off switch for the [Varnish integration](/docs/configuration/varnish)
 (`POST /admin/settings/varnish` with `varnish_enabled`, `varnish_addr`). While off, every service
@@ -392,18 +442,20 @@ to keep the stored value. Off by default — the keyword heuristic keeps working
 
 **Reload custom WAF rules.** If you use `--waf-rules` to layer custom `.conf` files on top of the
 OWASP CRS, editing those files on disk is **not** picked up automatically. Send `SIGHUP` to the
-running process (`kill -HUP $(pidof coraza-waf-mod)`) to rebuild the WAF engine in place. This is the
+running process (`kill -HUP $(pidof palisade)`) to rebuild the WAF engine in place. This is the
 *only* thing that needs SIGHUP; services, bot settings, rate limits, and everything else in this
 section already hot-reload on save.
 
 ## Dashboard home, notifications & metrics
 
-- **Home** (`/admin`) shows live traffic and threat charts (`/admin/api/traffic`,
-  `/admin/api/threats`) and an at-a-glance summary.
+- **Home** (`/admin`) shows overview counters (requests, blocked, challenged, visitors, block rate),
+  a live strip (requests per second, latency, blocks per minute, rule hits), 24 hours of hourly
+  allowed/blocked traffic, blocks by country, a card per service (route, backend health, cache, TLS),
+  the latest blocked requests, and a daily log from the audit trail (`/admin/api/traffic`,
+  `/admin/api/threats`).
 - **Notifications** stream in over SSE (`/admin/api/notifications/stream`); mark them seen with the
   bell control.
-- **Metrics** at `/admin/metrics` serve Prometheus exposition format, behind the **same
-  session-cookie admin auth** as the rest of the dashboard — **not** HTTP Basic Auth. A scrape without
-  a valid session cookie is redirected (302) to the login page rather than challenged for
-  credentials, so a stock Prometheus `basic_auth:` scrape config will not work out of the box. See
+- **Metrics** at `/admin/metrics` serve Prometheus exposition format behind the dashboard session.
+  For Prometheus, scrape `/admin/api/v1/metrics` with an API key instead. See
   [Metrics](/docs/configuration/metrics).
+- **AI Usage** (`/admin/ai-usage`) lists every TypeSafe classification call.

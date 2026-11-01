@@ -6,13 +6,19 @@ keywords: [email alerts, daily report, ban alert, cloudflare email]
 ---
 
 
-Palisade sends two kinds of email via **Cloudflare Email Service** (SMTPS — no external SMTP
-provider needed):
+Palisade sends email via **Cloudflare Email Service** (SMTPS — no external SMTP provider needed):
 
-- **Daily traffic report** — sent just after local midnight, covering the completed day: total
-  requests, blocked count, 403s, unique blocked IPs, and a per-stage breakdown.
-- **Ban alert** — sent every time [autoban](/docs/security/blocking#automatic-ip-banning) permanently
-  blocks an IP.
+- **Daily traffic report** — sent just after local midnight, covering the completed day.
+- **Ban alert** — sent every time [autoban](/docs/security/blocking#automatic-ip-banning) bans an
+  IP.
+- **New script alert** — sent the first time a service's
+  [script inventory](/docs/security/script-inventory) sees a new script source.
+- **Login code** — the emailed second-factor code, when you choose it at sign-in.
+- **User invite** — the set-password link for a [new admin user](/docs/configuration/users-and-sso#adding-users),
+  sent to that user's own address rather than the alert recipients. Only the API token has to be
+  configured for invites; email alerts don't need to be enabled.
+
+All emails share the dashboard's v3 look: a dark header band, square cards and monospaced figures.
 
 A ban is written to the blocklist regardless of whether email is configured or the send succeeds —
 email is a notification, not a dependency.
@@ -40,18 +46,18 @@ echoed back to the UI** once saved, so on subsequent saves leave the token field
 existing value.
 
 Alerts arrive with a display name so they show up as *Palisade* in your inbox. Gmail strips
-inline SVG from HTML email, so the logo badge in the template is built from plain HTML/CSS (a green
-rounded square with three bars) rather than an SVG image.
+inline SVG from HTML email, so the logo and charts are built from plain HTML tables and CSS rather
+than images. IP addresses, labels and ban reasons are HTML-escaped.
 
 ## Daily report contents
 
-| Field | Meaning |
+| Section | Meaning |
 |---|---|
-| Total | All requests logged in the completed day. |
-| Blocked | Requests denied by any pipeline stage. |
-| 403s | Requests answered with HTTP 403. |
-| Unique blocked IPs | Distinct client IPs with at least one blocked request. |
-| Per-stage breakdown | WAF-blocked, IP-blocked, geo-blocked, rate-limited, and bot-challenged counts. |
+| Summary line | One sentence on how the day went. |
+| Figure cards | Total requests, blocked, 403s and unique blocked IPs, each compared with the previous day. |
+| Hourly chart | Allowed vs blocked requests per hour, with the busiest hour marked. |
+| Block breakdown | What blocked requests: WAF, IP, geo, rate limit, bot challenge. |
+| Top 5 lists | The most-blocked countries, IPs and WAF rules. |
 
 ## Verifying credentials
 

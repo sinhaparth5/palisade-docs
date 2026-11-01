@@ -13,11 +13,11 @@ and `logrotate`-style pipelines.
 ## Enabling it
 
 The binary leaves it off unless `--access-log` is set. **`install.sh` turns it on** (fresh installs and
-upgrades alike) at `/var/log/coraza/access.log`, using systemd's `LogsDirectory=coraza` so the
+upgrades alike) at `/var/log/palisade/access.log`, using systemd's `LogsDirectory=palisade` so the
 directory is owned by the service user:
 
 ```bash
-./coraza-waf-mod --access-log /var/log/coraza/access.log
+./palisade --access-log /var/log/palisade/access.log
 ```
 
 | Flag | Default | Description |
@@ -27,7 +27,7 @@ directory is owned by the service user:
 | `--access-log-max-backups` | `5` | How many rotated files (`access.log.1`, `.2`, …) to keep before the oldest is pruned. |
 
 The built-in writer handles rotation. The SQLite log follows the same approach through
-`coraza-waf-mod prune` and a systemd timer, so neither log requires an external rotation tool.
+`palisade prune` and a systemd timer, so neither log requires an external rotation tool.
 
 ## Format notes
 
@@ -46,7 +46,7 @@ that gets an innocent IP banned by fail2ban).
 The log works with GoAccess out of the box:
 
 ```bash
-goaccess /var/log/coraza/access.log --log-format=COMBINED
+goaccess /var/log/palisade/access.log --log-format=COMBINED
 ```
 
 With the default rotation the log tops out at about 600 MB (100 MB × 5 backups plus the live file).

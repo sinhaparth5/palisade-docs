@@ -1,8 +1,8 @@
 ---
 sidebar_position: 3
 title: REST API
-description: Bearer-token authenticated API for services, IP rules, and bans, separate from the dashboard's session cookie.
-keywords: [rest api, bearer token, api keys, services api, ip rules api]
+description: Bearer-token authenticated API for services, IP rules, bans, custom WAF rules and metrics, separate from the dashboard's session cookie.
+keywords: [rest api, bearer token, api keys, services api, ip rules api, custom waf rules api]
 ---
 
 
@@ -20,7 +20,8 @@ cross-site request forgery, not to gate a header-based token.
 ## Creating a key
 
 1. Go to **Settings → API Keys**, enter a name, and click **Create key**
-   (see [API Keys](/docs/configuration/dashboard#settings)).
+   (see [API Keys](/docs/configuration/dashboard#settings)). Only **owners** can create and revoke
+   keys.
 2. The **full key is shown exactly once** (`cwaf_` + 40 hex characters) — copy it immediately. Only a
    SHA-256 hash and a short display prefix are persisted, so it cannot be shown again — only revoked
    and replaced with a new one.
@@ -56,8 +57,24 @@ validation and hot-reload behavior are identical to using the UI.
 | `GET` | `/services` | List all services. |
 | `POST` | `/services` | Create. Body: `name`, `match_type` (`host`\|`prefix`), `match_value`, `backend`, optional `rate_limit_rps`, `rate_limit_burst`. Runs the same reachability probe as the dashboard's add wizard — an unreachable backend is rejected. |
 | `GET` | `/services/:id` | Fetch one. |
-| `PUT` | `/services/:id` | Partial update. Body fields are all optional pointers — an omitted field is left unchanged, unlike an empty string, which clears it. Accepts `name`, `host`, `prefix`, `backend`, `rate_limit_rps`, `rate_limit_burst`, `bot_mode` (`inherit`\|`always`\|`off`). |
+| `PUT` | `/services/:id` | Partial update. Body fields are all optional — an omitted field is left unchanged, unlike an empty string, which clears it. See the field list below. |
 | `DELETE` | `/services/:id` | Remove. |
+| `POST` | `/services/:id/purge` | Purge the service's [Varnish](/docs/configuration/varnish#purging) cache: everything, or only objects under an optional JSON `path` prefix. Handy right after a deploy. |
+
+`PUT /services/:id` accepts:
+
+| Field | Type | Notes |
+|---|---|---|
+| `name`, `host`, `prefix`, `backend` | string | Core routing fields. |
+| `host_aliases` | string array | Replaces the whole alias list. See [Extra hostnames](/docs/configuration/services#extra-hostnames). |
+| `canonical_host` | string | `""` = no redirect; otherwise the host or one of its aliases. |
+| `backends` | string array | Replaces the whole backend list; the first entry is the primary. |
+| `lb_policy` | string | `round_robin` or `least_conn`. |
+| `health_path`, `health_interval` | string, int | Active health checks. |
+| `rate_limit_rps`, `rate_limit_burst` | number, int | Per-service rate limit. |
+| `bot_mode` | string | `inherit`, `always` or `off`. |
+| `allow_large_js_uploads`, `http3_enabled`, `compress_enabled` | bool | Per-service toggles. |
+| `request_schema`, `schema_mode` | string | JSON Schema text and `off`/`log`/`enforce`. |
 
 ### IP rules
 
@@ -66,6 +83,22 @@ validation and hot-reload behavior are identical to using the UI.
 | `GET` | `/ip-rules` | List all IP/CIDR rules (manual, threat-intel-synced, and auto-banned). |
 | `POST` | `/ip-rules` | Create. Body: `app_name` (empty = global), `ip` (address or CIDR), `rule_type` (`block`\|`allow`). |
 | `DELETE` | `/ip-rules/:id` | Remove. |
+
+### Custom WAF rules
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/waf-rules/custom` | List custom rules. |
+| `POST` | `/waf-rules/custom` | Create. Body: `rule` (one or more `SecRule`/`SecAction` directives, ids `1000000`–`1999999`), optional `service_name` (empty = all services), `note`, `enabled` (default `true`). The rule is compiled before saving; an invalid one is a `400`. |
+| `PUT` | `/waf-rules/custom/:id` | Replace a rule. Same body. |
+| `DELETE` | `/waf-rules/custom/:id` | Remove. |
+
+The WAF reloads after each change. See [Custom rules](/docs/security/waf#custom-rules).
+
+### Metrics
+
+`GET /metrics` returns the Prometheus exposition, the same as the dashboard's `/admin/metrics`.
+A read-only key is enough. See [Prometheus Metrics](/docs/configuration/metrics).
 
 ### Bans
 
@@ -107,7 +140,10 @@ struct carries JSON tags, so the field names are the **exact, capitalized** Go f
 ```
 
 (Trimmed for brevity — the full struct also carries `TLSCertPath`, `TLSKeyPath`, `TLSExpiresAt`,
-`CertID`, `CacheBySession`, and `SessionCookieName`.)
+`CertID`, `CacheBySession`, `SessionCookieName`, `AllowLargeJSUploads`, `RequestSchema`,
+`SchemaMode`, `CompressEnabled`, `ExtraBackends`, `LBPolicy`, `HealthPath`, `HealthInterval`,
+`HostAliases`, `CanonicalHost`, `LoginPaths`, `AICrawlerPolicy`, `BreachAction`, `BreachFields`,
+`ResponseInspect`, `CacheRules` and `Gate`.)
 
 ```json title="GET /api/v1/ip-rules"
 [
@@ -125,6 +161,11 @@ struct carries JSON tags, so the field names are the **exact, capitalized** Go f
 Errors are a flat JSON object: `{"error": "name, backend, match_type (host|prefix), and match_value are required"}`,
 with the HTTP status carrying the category (`400` validation, `401`/`429` auth, `404` not found,
 `500` server error).
+
+## Audit trail
+
+Every successful API write is recorded in the [audit log](/docs/configuration/users-and-sso#audit-log)
+with the key's name and prefix as the actor.
 
 ## Example
 

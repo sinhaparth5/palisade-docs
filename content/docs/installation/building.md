@@ -7,7 +7,7 @@ keywords: [build from source, go build, make, cross compile, release]
 
 
 ```bash
-make build       # go generate (minify JS) + go build → ./coraza-waf-mod
+make build       # go generate (minify JS) + go build → ./palisade
 make generate    # regenerate minified JS only (go generate ./...), no build
 make css         # recompile the admin-UI Tailwind CSS (standalone CLI, no Node); commit the output
 make run         # build + run

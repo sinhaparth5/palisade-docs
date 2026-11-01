@@ -13,10 +13,10 @@ pool with request traffic. Deployments with no scheduler can opt into [in-proces
 Run it from cron or the bundled systemd timer:
 
 ```bash
-coraza-waf-mod prune --db /var/lib/coraza-waf-mod/waf.db --retention 30
+palisade prune --db /var/lib/palisade/waf.db --retention 30
 ```
 
-The installer sets up `coraza-waf-mod-prune.service` + `.timer` to run every 15 days automatically.
+The installer sets up `palisade-prune.service` + `.timer` to run every 15 days automatically.
 Deletes happen in batches (2000 rows) with short pauses, so SQLite's single write lock isn't held
 for the entire operation.
 
@@ -28,7 +28,7 @@ forever). See the [CLI reference](/docs/configuration/cli) for the `prune` subco
 Containers and other setups without cron or a systemd timer can let the server prune itself:
 
 ```bash
-./coraza-waf-mod --retention 30 --prune-interval 24h
+./palisade --retention 30 --prune-interval 24h
 ```
 
 At each interval the server deletes request logs older than `--retention` days and expired

@@ -13,7 +13,7 @@ Metabase, Grafana or Superset on top.
 It's opt-in:
 
 ```bash
-./coraza-waf-mod --warehouse-url 'http://clickhouse:8123/?database=waf'
+./palisade --warehouse-url 'http://clickhouse:8123/?database=waf'
 ```
 
 The operational database is untouched and remains the source of truth.

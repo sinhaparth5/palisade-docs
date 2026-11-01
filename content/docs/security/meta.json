@@ -1,10 +1,13 @@
 {
   "title": "Security",
-  "description": "WAF inspection, blocking, bot protection, threat intelligence, and response hardening.",
+  "description": "WAF inspection, API protection, blocking, bot protection, login protection, threat intelligence, and response hardening.",
   "pages": [
     "waf",
+    "api-protection",
     "blocking",
     "bot-and-fingerprinting",
+    "login-protection",
+    "script-inventory",
     "threat-score",
     "threat-intel-webhooks",
     "trusted-proxy",
