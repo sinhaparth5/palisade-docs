@@ -43,8 +43,6 @@ RUN groupadd --system --gid 1001 nodejs \
 
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-# Read at runtime by src/patchwatch.mjs.
-COPY --from=builder --chown=nextjs:nodejs /app/pnpm-lock.yaml ./
 
 USER nextjs
 
