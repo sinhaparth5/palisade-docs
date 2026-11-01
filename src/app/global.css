@@ -95,6 +95,7 @@ html {
 }
 
 body {
+  counter-reset: section;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -412,10 +413,7 @@ html > body[data-scroll-locked] {
   background-repeat: no-repeat;
 }
 
-/* "§ 01 ·" before each landing section's eyebrow. */
-body {
-  counter-reset: section;
-}
+/* "§ 01 ·" before each landing section's eyebrow (counter reset on body). */
 .section-no::before {
   counter-increment: section;
   content: "§ " counter(section, decimal-leading-zero) "  ·  ";
