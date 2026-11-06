@@ -4,27 +4,9 @@ import type { MDXComponents } from "mdx/types";
 import Image, { type StaticImageData } from "next/image";
 import { type ComponentPropsWithoutRef, createElement } from "react";
 import archDiagram from "@/static/img/arch_diagram_white-bg.png";
-import botProtection from "@/static/img/docs/docs_bot_protection.png";
-import dashboard from "@/static/img/docs/docs_dashboard.png";
-import geoBlock from "@/static/img/docs/docs_geo_block.png";
-import ipRules from "@/static/img/docs/docs_ip_rules.png";
-import logs from "@/static/img/docs/docs_logs.png";
-import logsDetail from "@/static/img/docs/docs_logs_detail.png";
-import service from "@/static/img/docs/docs_service.png";
-import settings from "@/static/img/docs/docs_settings.png";
-import wafRules from "@/static/img/docs/docs_waf_rules.png";
 
 const contentImages: Record<string, StaticImageData> = {
   "/img/arch_diagram_white-bg.png": archDiagram,
-  "/img/docs/docs_bot_protection.png": botProtection,
-  "/img/docs/docs_dashboard.png": dashboard,
-  "/img/docs/docs_geo_block.png": geoBlock,
-  "/img/docs/docs_ip_rules.png": ipRules,
-  "/img/docs/docs_logs.png": logs,
-  "/img/docs/docs_logs_detail.png": logsDetail,
-  "/img/docs/docs_service.png": service,
-  "/img/docs/docs_settings.png": settings,
-  "/img/docs/docs_waf_rules.png": wafRules,
 };
 
 function isStaticImageData(value: unknown): value is StaticImageData {
