@@ -165,7 +165,7 @@ query, every header and the body. Requests carrying `Cookie` or `Authorization` 
 
 ## Disabling a noisy rule
 
-![WAF Rules page showing the Disable Rule form with CRS Rule ID and reason fields, Top Firing Rules analytics table with hit counts, and the Disabled Rules list](/img/docs/docs_waf_rules.png)
+![WAF Rules page showing the Disable Rule form with CRS rule ID, scope and reason fields, the Top Firing Rules analytics table with hit counts, the Disabled Rules list, and per-service exceptions](/img/docs/docs_waf_rules.png)
 
 The **WAF Rules** page (`/admin/waf-rules`) lists CRS rules. Disable a rule by ID with a reason
 (`POST /admin/waf-rules/disable` with `rule_id`, `reason`) and re-enable it

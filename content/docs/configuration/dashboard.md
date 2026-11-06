@@ -26,7 +26,7 @@ Each form writes its change to `waf.db` and then **hot-reloads** the relevant su
 blocklist, geo, WAF engine, or rate limiter). No file edit or restart is required.
 :::
 
-![Palisade dashboard home — live traffic chart, requests today, blocked today, bot shield summary, and top threats panel](/img/docs/docs_dashboard.png)
+![Palisade dashboard home — overview of requests, blocked, challenged and block rate today, live metrics strip, 24h traffic chart, top countries, enforcement-today breakdown, and blocked-by-country chart](/img/docs/docs_dashboard.png)
 
 ## Services (backend apps) — *what gets proxied*
 
@@ -48,7 +48,7 @@ blocklist, geo, WAF engine, or rate limiter). No file edit or restart is require
    ("fix the backend or try again before adding"). This prevents adding dead upstreams.
 4. On success the routing registry is rebuilt instantly and the new row appears.
 
-![Services page showing the Add Service wizard on the left and the configured services list on the right with host match, TLS, rate limit, and bot mode controls per row](/img/docs/docs_service.png)
+![Services page showing the guided Add Service wizard above the configured services list, with host match, backend, TLS status and rate limit per row](/img/docs/docs_service.png)
 
 **Behavior to know:**
 
@@ -99,7 +99,7 @@ on change. See [IP & Geo Blocking](/docs/security/blocking) for how they fit the
    request from that IP is affected.
 4. **Remove** a rule with the row's delete control (`DELETE /admin/ip-rules/:id`).
 
-![IP Rules page — Add IP Rule form on the left with IP/CIDR input, scope selector, and block/allow toggle; Active IP Rules list on the right with rules overview stats](/img/docs/docs_ip_rules.png)
+![IP Rules page — Add IP Rule form with IP/CIDR input, scope selector and block/allow toggle; automatic banning, adaptive enforcement and honeypot path panels; rules overview; and the Active IP Rules list](/img/docs/docs_ip_rules.png)
 
 These manual rules are evaluated alongside the IPs pulled in automatically by
 [threat-intel sync](/docs/security/threat-intel-webhooks) and the autoban engine (see below).
@@ -179,7 +179,7 @@ low-risk IPs. Review observed scores on this page before enabling it.
    works correctly behind Cloudflare / a trusted proxy.
 4. **Remove** with the row's delete control (`DELETE /admin/geo-rules/:id`).
 
-![Geo Rules page — Add Geo Rule form with country code input and block/allow selector; Active Geo Rules list showing a CN block rule with global scope and rules overview stats](/img/docs/docs_geo_block.png)
+![Geo Rules page — Add Geo Rule form with country code, scope and block/allow selector; rules overview; and the Active Geo Rules list showing global CN, RU and KP block rules](/img/docs/docs_geo_block.png)
 
 **Routes:** `GET /geo-rules`, `POST /geo-rules` (`app_name`, `country_code`, `rule_type`),
 `DELETE /geo-rules/:id`.
@@ -251,7 +251,7 @@ autocert → global fallback.**
 history queried directly from the active database (so you can page deep without the stream
 interfering). You can force history mode with `?mode=history`.
 
-![Live Logs page showing the live stream active indicator, date/app/status filters, and the request log table with time, app, IP, method, path, status, and duration columns](/img/docs/docs_logs.png)
+![Live Logs page showing the live stream indicator, date/app/status filters, table/stats toggle, the request log table with time, app, IP, method, path and status columns, and the Request Inspector panel](/img/docs/docs_logs.png)
 
 **Live behaviour.** New rows are inserted in batches, so a traffic burst costs one repaint, and the
 table keeps the newest 500 rows. **Pause** holds new rows back instead of shifting the ones you're
@@ -294,7 +294,7 @@ request's service only**, and the WAF reloads live. The rule and service are rea
 row, never from the browser. The exception appears under
 [Per-Service Exceptions](/docs/security/waf#per-service-exceptions) on the WAF Rules page.
 
-![Log detail view showing timestamp, app/service, host, real client IP vs proxy/CDN IP, country, query string, user agent, request ID, ASN, ISP/organisation, and TLS connection details](/img/docs/docs_logs_detail.png)
+![Request Inspector panel for a blocked request — request ID, method, status, service, URL, security decision, time, duration, country, query, user agent, real client IP vs proxy IP, ASN, organisation, protocol and TLS details](/img/docs/docs_logs_detail.png)
 
 **Export.** The **Export** button hits `GET /admin/logs/export` with the *same* filter query params
 and streams the matching rows as newline-delimited JSON (`.ndjson`).
@@ -310,7 +310,7 @@ and streams the matching rows as newline-delimited JSON (`.ndjson`).
 integrations. Cards are grouped into sections with jump links; owner and admin cards are hidden from
 roles that can't use them.
 
-![Settings page showing the Account section with current email, new email, new password, and confirm password fields, plus the Database backup download button](/img/docs/docs_settings.png)
+![Settings page showing the section tabs (Account & Access, Protection, Infrastructure, Alerts & Integrations, Activity), the Account form with current email, new email and new password fields, and the two-factor authentication and passkey panels](/img/docs/docs_settings.png)
 
 **Change your credentials.** Enter your **current password**, then a **new email** and/or **new
 password** (typed twice). Submitting (`POST /admin/settings/credentials` with `current_password`,

@@ -72,7 +72,7 @@ export function ArchitectureSection() {
           <div className="rotate-[0.4deg] rounded-sm bg-white p-3 shadow-[0_1px_0_var(--color-rule),0_12px_30px_-18px_rgba(0,0,0,0.35)] sm:p-5">
             <Image
               src={archDiagram}
-              alt="Palisade request architecture from the client through Cloudflare and OS firewall to the WAF proxy, SQLite, dashboard, and backend"
+              alt="Palisade architecture: a request passes the optional CDN and OS firewall, then IP rules, geo rules, bot challenge, rate limit, gate and Coraza WAF before the reverse proxy routes it to a backend; logs go asynchronously to SQLite, MySQL or Postgres, managed from the admin dashboard"
               sizes="(max-width: 1100px) 92vw, 1024px"
               quality={88}
               className="h-auto w-full"

@@ -21,7 +21,7 @@ See [Migrating from coraza-waf-mod](/docs/installation/migrating-to-palisade). P
 independent and is not affiliated with or endorsed by OWASP or the Coraza project.
 :::
 
-![Palisade Architecture: User Request → Cloudflare → OS Firewall → Coraza WAF Proxy (with SQLite waf.db and HTMX/Tailwind Admin Dashboard) → Application Service](/img/arch_diagram_white-bg.png)
+![Palisade v3.2.1 architecture: user request → optional Cloudflare/CDN → OS firewall → HTTP/HTTPS/HTTP3 listeners → Palisade pipeline (IP rules, geo rules, bot challenge, rate limit, maintenance/waiting room gate, Coraza WAF, reverse proxy, optional Varnish cache) → backends, with async request logging to SQLite, MySQL or Postgres, the admin dashboard, REST API and metrics, and optional webhook, email and ClickHouse outputs](/img/arch_diagram_white-bg.png)
 
 ## What it does
 

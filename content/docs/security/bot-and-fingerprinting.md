@@ -66,7 +66,7 @@ provider's siteverify API before the bypass cookie is issued. The nonce signatur
 automation checks still apply. The secret is encrypted with the other secrets, never shown again
 after saving, and kept if you save the card with the field blank.
 
-![Bot Protection settings panel showing the enable toggle, anomaly threshold field set to 8, and bypass cookie TTL field set to 3600 seconds](/img/docs/docs_bot_protection.png)
+![Bot Protection settings card showing the enable toggle, anomaly threshold set to 8, bypass cookie TTL set to 3600 seconds, CAPTCHA fallback, and AI crawler policies](/img/docs/docs_bot_protection.png)
 
 ### Automated-browser detection
 
