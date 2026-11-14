@@ -17,6 +17,7 @@ export function baseOptions(): BaseLayoutProps {
     links: [
       { text: "Docs", url: "/docs" },
       { text: "Blog", url: "/blog" },
+      { text: "Pro", url: "/pro" },
       {
         type: "icon",
         text: "GitHub",
