@@ -15,7 +15,7 @@ admin account is moved in as an **owner**, keeping its password, 2FA, passkeys a
 |---|---|
 | `viewer` | See every page read-only. Manage only their own password, 2FA, passkeys and devices. |
 | `admin` | Everything a viewer can, plus change services, rules, certificates, threat intel, bot, rate-limit, Varnish and trusted-IP settings, and export logs. |
-| `owner` | Everything, plus users and SSO, the database connection, backups, API keys, and the webhook, email and TypeSafe secrets. |
+| `owner` | Everything, plus users and SSO, backups and the configuration export, API keys, profiling, and the webhook and email secrets. |
 
 The role is enforced on the server for every route. The dashboard also hides the controls a role
 can't use: viewers get settings in a disabled form, a read-only **View** modal for services (the
@@ -35,6 +35,12 @@ Owners manage users from the **Users** card under **Settings**.
    token needs to be configured).
 3. The person opens `/admin/invite/<token>`, picks a password, and is signed in.
 
+Every password (invite, change password, `palisade setup`) must be at least **12 characters**, must not
+equal the email, and must not appear in the Have I Been Pwned breach list. Only the first 5 characters
+of the password's SHA-1 hash are sent, and the check fails open if HIBP can't be reached. Passwords are
+hashed with bcrypt cost 12; older hashes are upgraded on the next successful login. Session tokens are
+stored only as SHA-256 hashes, so a copy of the database can't be used to hijack a session.
+
 The link is single-use and expires after **7 days**. Only its SHA-256 hash is stored. If the email
 can't be sent, the Users card shows the link once so you can pass it on yourself. Pending users are
 marked **invited** and have a **Resend** button, which replaces the token
@@ -43,7 +49,12 @@ login limiter.
 
 Per user, an owner can change the role, **disable** or **enable** the account (disabling revokes its
 sessions immediately), **reset 2FA**, or delete it (`POST /admin/settings/users/:id` with
-`action` = `role`/`disable`/`enable`/`reset-2fa`, `DELETE /admin/settings/users/:id`).
+`action` = `role`/`disable`/`enable`/`reset-2fa`, `DELETE /admin/settings/users/:id`). **Reset 2FA**
+is shown for SSO-linked users too, since they can still have 2FA for password sign-in.
+
+Locked out with nobody left to help? The `palisade setup` subcommand can reset a password or 2FA, list
+users and read the audit log straight from the database. See
+[Locked out: recovery from the shell](/docs/configuration/cli#locked-out-recovery-from-the-shell).
 
 ## Signing in
 
@@ -85,7 +96,14 @@ In the Users card, create an **SSO invite** with an email and role
 revoked. The login page now shows **Sign in with &lt;issuer host&gt;**.
 
 On their first SSO login, the provider's verified email must match the invite. Palisade spends the
-invite and binds a new password-less user to the provider's `iss` + `sub`. Later logins match on that
+invite and binds a new password-less user to the provider's `iss` + `sub`.
+
+**Existing users can be invited too.** Send an SSO invite to an existing user's email; on their first
+SSO login with that verified email, Palisade links the provider account to the existing user instead of
+creating a new one. Their role, password and 2FA stay as they were, so password sign-in still works as
+a fallback. The invite step is still required: Palisade never links an account just because the email
+matches at the provider, so a misconfigured or compromised provider can't take over a local account.
+Re-inviting a user who is already linked is refused, and so is an invite for a disabled user. Later logins match on that
 pair, **never on email**, so changing an email at the provider can't take over another account.
 
 Sign-in is refused (and no user is created) for an uninvited, expired, revoked or already used

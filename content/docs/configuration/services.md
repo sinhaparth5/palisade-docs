@@ -2,7 +2,7 @@
 sidebar_position: 3
 title: Services & Load Balancing
 description: Route traffic to backends, spread it across several with health checks, serve extra hostnames, compress responses, and put a service in maintenance or behind a waiting room.
-keywords: [services, reverse proxy, load balancing, health checks, round robin, least connections, host aliases, canonical redirect, compression, zstd, gzip, maintenance mode, waiting room]
+keywords: [services, reverse proxy, rename service, self-signed backend, private ca, certificate pinning, load balancing, health checks, round robin, least connections, host aliases, canonical redirect, compression, zstd, gzip, maintenance mode, waiting room]
 ---
 
 
@@ -32,6 +32,7 @@ line, next to the primary one:
 | `lb_policy` | `round_robin` (default) or `least_conn`. |
 | `health_path` | Optional path for active health checks, e.g. `/healthz`. |
 | `health_interval` | Seconds between active checks. Default `10`. |
+| `backend_ca` | Optional trusted certificate (PEM) for HTTPS backends. See [Self-signed and private-CA backends](#self-signed-and-private-ca-backends). |
 
 **Passive health** is always on. A backend that answers is up. A connection error takes it out of
 rotation for 10 seconds, or, with a `health_path` set, until an active check passes. Active checks
@@ -44,11 +45,55 @@ The services list shows a health dot per backend, and the `palisade_backend_up{a
 [metric](/docs/configuration/metrics) exposes the same state. `/_cz/readyz` ignores backend health; it
 only reports whether Palisade itself is ready.
 
-Backends may be private addresses on purpose. Cloud metadata endpoints (such as
-`169.254.169.254`) are rejected, by hostname and by resolved IP.
+Backends may be private addresses on purpose. Cloud metadata and other link-local addresses
+(`169.254.0.0/16`, `fe80::/10`, `fd00:ec2::254`, and their IPv4-mapped and NAT64 forms) are rejected
+when you save, by hostname and by resolved IP. The same check runs again **at connect time** on the IP
+actually dialed, for proxied requests, health checks and every outbound request Palisade makes
+(webhooks, threat feeds, OIDC, JWKS, HIBP, captcha), so a DNS change or a redirect can't reach
+them either.
 
 Each backend keeps up to 100 idle keep-alive connections, so a busy service doesn't open a new
 connection per request.
+
+### Self-signed and private-CA backends
+
+HTTPS backends are verified against the system's trusted CAs. For a backend with a self-signed or
+private certificate, paste a certificate into **Trusted backend certificate (PEM)** on the
+**Backends** tab:
+
+- **Self-signed backend:** paste the backend's own certificate. Palisade accepts exactly that
+  certificate and nothing else. The name inside it doesn't need to match, so a backend reached by IP
+  (say `https://10.0.0.5:8006` with a certificate for `pve.local`) works.
+- **Private CA:** paste the CA certificate. Palisade checks the chain and the hostname against that CA
+  only.
+- **Empty:** the system CAs, as before.
+
+To get the certificate from a running backend:
+
+```bash
+openssl s_client -connect 10.0.0.5:8006 </dev/null 2>/dev/null | openssl x509
+```
+
+Paste the whole `-----BEGIN CERTIFICATE-----` block. Never paste the private key; Palisade refuses it
+and any other non-certificate PEM block.
+
+There is deliberately **no "skip verification" switch**: with one, anyone on the network between
+Palisade and the backend could read or change the traffic (logins, session cookies, the forwarded
+`X-Auth-Subject`) without any warning. Adding a service no longer fails on a self-signed backend, so
+you can add it first and paste the certificate afterwards; until then, requests to that backend are
+refused.
+
+The certificate is part of the [configuration export](/docs/configuration/cli#config-export--config-import--move-configuration-as-a-file)
+and is removed with the service.
+
+## Renaming a service
+
+Rename a service from the **Name** field at the top of its edit modal, or with `name` in a
+[REST API](/docs/configuration/rest-api) `PUT /services/:id`. Its IP and geo rules, WAF rule exceptions, custom
+rules and rule feedback move to the new name in one transaction, and its WAF engine is rebuilt. Past
+request logs keep the old name. Uploaded certificates and keys live under
+`certs/services/by-id/<id>/`, so a renamed service and a new service with its old name never share
+files (uploads from older versions under `certs/services/<name>/` keep working).
 
 ## Extra hostnames
 

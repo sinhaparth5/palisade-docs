@@ -33,9 +33,9 @@ header (Cloudflare, for example) is kept on plain-HTTP requests.
 
 ## Cloudflare TLS fingerprints
 
-The `Cf-Ja4` and `Cf-Ja3-Fp` headers are read only when the socket peer is a Cloudflare address.
+The `Cf-Ja4` header is read only when the socket peer is a Cloudflare address.
 From anyone else Palisade uses the fingerprint it computed from the handshake. See
-[JA4 / JA3 TLS fingerprinting](/docs/security/bot-and-fingerprinting#ja4--ja3-tls-fingerprinting).
+[JA4 TLS fingerprinting](/docs/security/bot-and-fingerprinting#ja4-tls-fingerprinting).
 
 :::warning[All clients showing the same IP?]
 If all clients appear to share one IP (and rate limiting blocks everyone), you're likely behind a

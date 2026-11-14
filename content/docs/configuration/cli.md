@@ -2,7 +2,7 @@
 sidebar_position: 1
 title: Command-Line Interface
 description: Runtime flags that bootstrap the server, plus the one-shot subcommands.
-keywords: [cli, command line flags, db-driver, build-dsn, setup, prune, gencert]
+keywords: [cli, command line flags, setup, reset password, reset 2fa, config export, config import, prune, gencert, admin-allow]
 ---
 
 
@@ -21,15 +21,16 @@ Start the WAF/proxy/dashboard by running the binary with any of these flags:
 | `--listen-h3` | *(empty)* | HTTP/3 (QUIC) UDP listen address, e.g. `:443`. Needs `--listen-tls`. Services opt in individually. See [HTTP/3](/docs/configuration/tls#http3-quic). |
 | `--trusted-proxies` | *(empty)* | Comma-separated IPs or CIDRs allowed to supply `X-Forwarded-For` / `X-Real-IP`. A bare IP counts as a /32 or /128. See [Trusted Proxy](/docs/security/trusted-proxy). |
 | `--trusted-crawlers` | *(empty)* | Extra crawlers that skip the bot challenge, pinned by source: `ua=cidr[,cidr];ua2=ip`, or `ua=https://host` to accept that host's Web Bot Auth signatures. See [Verified crawlers](/docs/security/bot-and-fingerprinting#verified-crawlers). |
-| `--db` | `waf.db` | SQLite path, MySQL DSN, or Postgres connection URL/DSN. |
-| `--db-driver` | `sqlite` | Database backend: `sqlite`, `mysql`/`mariadb`, or `postgres` plus the `postgresql`, `cockroachdb`, and `neon` aliases. |
+| `--db` | `waf.db` | Path to the SQLite database file. |
 | `--db-key-file` | *(empty)* | File containing at least 32 bytes of high-entropy key material (raw, hex, or base64) used to encrypt stored secrets with AES-256-GCM. Empty keeps secrets plaintext. |
 | `--certs` | `./certs` | TLS certificate cache directory (Let's Encrypt files). |
 | `--waf-rules` | *(empty)* | Directory of extra `.conf` WAF rules, loaded on top of OWASP CRS. |
 | `--geo-db` | *(empty)* | Path to an external `GeoLite2-Country.mmdb`. Empty = use bundled DB. |
 | `--retention` | `30` | Request-log retention in days. `0` = keep forever (used by `prune` and `--prune-interval`). |
 | `--prune-interval` | `0` | Prune request logs older than `--retention` and expired sessions **in-process** at this interval, e.g. `24h`. `0` = off. For deployments with no cron or systemd timer, such as Docker. See [Log Retention & Pruning](/docs/configuration/log-retention). |
-| `--warehouse-url` | *(empty)* | ClickHouse HTTP endpoint to mirror telemetry to, e.g. `http://clickhouse:8123/?database=waf`. Empty = disabled. See [ClickHouse Analytics](/docs/configuration/analytics). |
+| `--admin-allow` | *(empty)* | Comma-separated IPs or CIDRs allowed to reach `/admin` (dashboard, REST API, metrics). Requests from any other client get the normal proxy pipeline, so the admin UI looks absent. Invalid entries stop startup. See [Restricting the admin UI](#restricting-the-admin-ui). |
+| `--admin-listen` | *(empty)* | Extra plain-HTTP listener, e.g. `127.0.0.1:9090`, that serves only the admin UI. When set, the admin UI is removed from the public listeners. |
+| `--max-conns-per-ip` | `256` | Maximum concurrent TCP connections per client (IPv6 keyed by /64). Connections over the cap are closed at accept, before TLS. Trusted proxies, Cloudflare, loopback and trusted IPs are exempt. `0` = off. |
 | `--tls-cert` | *(empty)* | PEM certificate file for the HTTPS fallback (self-signed). |
 | `--tls-key` | *(empty)* | Matching PEM private key for `--tls-cert`. |
 | `--access-log` | *(empty)* | nginx-combined-format access log file path. Empty = disabled. `install.sh` sets it to `/var/log/palisade/access.log`. See [Access Log](/docs/configuration/access-log). |
@@ -46,7 +47,6 @@ Example (HTTP + HTTPS, behind a known load balancer):
   --tls-key  /var/lib/palisade/certs/self-signed.key \
   --trusted-proxies 10.0.0.0/8,192.168.0.0/16 \
   --trusted-crawlers "dev-portal-uptime=198.51.100.7" \
-  --db-driver sqlite \
   --db /var/lib/palisade/waf.db \
   --db-key-file /etc/palisade/db.key \
   --certs /var/lib/palisade/certs \
@@ -63,18 +63,59 @@ Each subcommand does one thing and exits (it does **not** start the server).
 ### `setup` — seed admin credentials and optional ACME config
 
 ```bash
-palisade setup --db-driver sqlite --db waf.db --admin-email you@example.com \
+palisade setup --db waf.db --admin-email you@example.com \
   [--domain example.com] [--acme-email contact@example.com]
 # Password is read from stdin (one line).
 ```
 
-- **Idempotent for credentials:** if an admin already exists, the credential step is skipped — safe
-  to re-run on upgrade without overwriting a changed password. The seeded account is an **owner**;
+- **Idempotent for credentials:** if the account already exists, setup prints
+  `already exists, password unchanged` and leaves it alone, so it is safe to re-run on upgrade. It
+  prints `admin account created` only when it really created one. The seeded account is an **owner**;
   add more people from the dashboard ([Users, Roles & SSO](/docs/configuration/users-and-sso)).
+- The admin email is your login name and must be a real address (text on both sides of one `@`, no
+  spaces), because the login form accepts nothing else.
+- The password must be at least **12 characters**, must not equal the email, and must not appear in
+  the Have I Been Pwned breach list (only a 5-character hash prefix is sent; the check fails open if
+  HIBP is unreachable).
 - If `--domain` is given, the domain and ACME contact email are stored so Let's Encrypt can issue a
   certificate. `--acme-email` defaults to the admin email if omitted.
-- Use the same `--db-driver` and `--db` values that the server will use. Supported driver aliases are
-  the same as the runtime flags.
+- Point `--db` at the same SQLite file the server uses.
+
+#### Locked out: recovery from the shell
+
+These run against the database directly, so they work when nobody can log in. On an installer-managed
+host run them as the service user:
+
+```bash
+sudo -u palisade palisade setup --db /var/lib/palisade/waf.db ...
+```
+
+| Command | What it does |
+|---|---|
+| `setup --admin-email <email> --reset-password` | Reads a new password from stdin and replaces that user's password. Signs out their sessions and writes an audit row. |
+| `setup --admin-email <email> --reset-2fa` | Turns off TOTP and its backup codes and removes the user's passkeys. The password is kept, and no password prompt is shown. Signs out their sessions and writes an audit row. Combine with `--reset-password` to reset both. |
+| `setup --list-users` | Prints every admin user: role, disabled, TOTP, passkey count, SSO link, pending invite, created time and last session (time and IP). Read-only; never prints hashes, secrets or tokens. |
+| `setup --audit [--limit n]` | Prints the newest admin audit log rows (time, actor, IP, action, target, summary), newest first. `--limit` defaults to 50, max 1000. Read-only. |
+
+Audit rows written from the shell show the actor `palisade setup (shell)`. `--list-users` and
+`--audit` can't be combined with each other, with `--admin-email`, with the reset flags or with
+`--domain`. Without a reset flag, setup never changes an existing account.
+
+### `config export` / `config import` — move configuration as a file
+
+```bash
+palisade config export --db /var/lib/palisade/waf.db --db-key-file /etc/palisade/db.key --out config.json
+palisade config import --db /var/lib/palisade/waf.db --db-key-file /etc/palisade/db.key config.json
+```
+
+- Export writes services, rules, users, API keys and settings as one JSON file, to stdout or to
+  `--out` (created `0600`). The request log is not included.
+- Import reads a file, or stdin. It refuses a database that already has configuration unless you pass
+  `--replace`, which empties the configuration tables first. A failed import leaves the database
+  unchanged.
+- With `--db-key-file`, secrets stay sealed (`enc:v1:`) in the file and the same key is needed to
+  import it. Without a key, unsealed secrets (meta secrets, webhook secret, TOTP) are blanked.
+- Owners can also download the export from **Settings → Configuration export** in the dashboard.
 
 ### `gencert` — generate a self-signed certificate
 
@@ -89,13 +130,13 @@ palisade gencert --cert cert.pem --key key.pem \
 ### `prune` — delete old request logs
 
 ```bash
-palisade prune --db-driver sqlite --db waf.db --retention 30 --vacuum
+palisade prune --db waf.db --retention 30 --vacuum
 ```
 
 - Opens the DB, deletes expired sessions and request rows older than the retention window **in
   batches**, and exits.
-- `--vacuum` reclaims space after deletion. SQLite runs a full rebuild plus WAL truncate and reports
-  before/after size; Postgres runs its in-place `VACUUM`; MySQL treats the flag as a documented no-op.
+- `--vacuum` reclaims space after deletion: a full SQLite rebuild plus WAL truncate, reporting the
+  before/after size.
 - `--retention 0` or negative disables pruning. Intended to be run by cron or the bundled systemd
   timer. For setups with no scheduler, use `--prune-interval` on the server instead. See [Log Retention & Pruning](/docs/configuration/log-retention).
 
@@ -109,21 +150,25 @@ palisade healthcheck --url http://127.0.0.1:8080/_cz/readyz
   it returns `200`. The Docker image is built `FROM scratch` with no `curl` or `wget`, so its
   `HEALTHCHECK` uses this subcommand. See [Health probes](/docs/configuration/metrics#health-probes).
 
-### `build-dsn` — safely construct an external database DSN
-
-```bash
-printf '%s\n' "$DB_PASSWORD" | palisade build-dsn \
-  --driver postgres --host db.example.com --port 5432 \
-  --username palisade --dbname palisade --sslmode require
-```
-
-The command prints a driver-correct DSN with credentials escaped safely. The password is read from
-stdin (an empty line is allowed), never from a flag. Optional `--extra` accepts query parameters such
-as `connect_timeout=10&application_name=palisade`. MySQL defaults to port `3306`; Postgres defaults to
-`5432`.
-
 ### `version`
 
 ```bash
 palisade version        # or: palisade --version
 ```
+
+Unknown subcommands are refused instead of starting the server.
+
+## Restricting the admin UI
+
+By default the admin UI answers on every listener at `/admin`, except on hosts that belong to a
+service. Two flags narrow that:
+
+- `--admin-allow 203.0.113.7,10.0.0.0/8` lets only those client IPs reach `/admin`, the REST API and
+  metrics. Anyone else is handed to the normal proxy pipeline, so the admin UI looks absent. The client
+  IP is resolved the same way as everywhere else ([Trusted Proxy](/docs/security/trusted-proxy)), so a
+  spoofed `X-Forwarded-For` doesn't get through.
+- `--admin-listen 127.0.0.1:9090` starts a separate plain-HTTP listener that serves only the admin path
+  and removes the admin UI from the public listeners. Reach it over an SSH tunnel or VPN. A refused
+  client on this listener gets a plain `404`; nothing is proxied from it.
+
+The two can be combined.

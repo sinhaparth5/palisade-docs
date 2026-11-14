@@ -2,7 +2,7 @@
 sidebar_position: 2
 title: Architecture
 description: The request pipeline, storage model, hot reload, multi-app routing, and bundled data.
-keywords: [architecture, request pipeline, reverse proxy, hot reload, storage, sqlite, mysql, postgres, go]
+keywords: [architecture, request pipeline, reverse proxy, hot reload, storage, sqlite, go]
 ---
 
 
@@ -10,7 +10,11 @@ keywords: [architecture, request pipeline, reverse proxy, hot reload, storage, s
 
 Every request runs through a single `Handle` method, in strict order:
 
-0. **Before the pipeline** — a request for a service's non-canonical hostname is redirected to the
+0. **Before the pipeline** — the request path is canonicalized once (`//` collapsed, `.` and `..`
+   segments resolved, trailing slash kept), so JWT, rate, cache and OpenAPI rules, the MCP guard and
+   the backend all see the same path and `//api/x` or `/z/../api/x` can't slip past a path check. The
+   WAF still sees the raw request URI, so CRS keeps scoring traversal attempts. A request for a
+   service's non-canonical hostname is redirected to the
    [canonical host](/docs/configuration/services#extra-hostnames); a service that requires
    [client certificates](/docs/configuration/tls#client-certificates-mtls) rejects requests without
    a valid one (`403 mtls_required`).
@@ -23,8 +27,12 @@ Every request runs through a single `Handle` method, in strict order:
    decision from [adaptive enforcement](/docs/security/threat-score) if enabled).
 4. **Global rate limit** — per-client token bucket (IPv6 by /64), scaled up or down for high/low-risk
    IPs by the same adaptive-enforcement decision when enabled.
-5. **Per-service rate limit** — optional, after routing, plus the fixed login-path limiter.
+5. **Per-service rate limit** — optional, after routing, plus [per-path limits](/docs/configuration/rate-limiting#per-path-limits)
+   and the fixed login-path limiter.
 6. **Maintenance / waiting room** — per-service [availability gates](/docs/configuration/services#maintenance-mode).
+   Then, per service, [JWT verification](/docs/security/api-protection#jwt-verification-at-the-edge)
+   (`401 jwt_invalid`; trusted IPs are checked too) and the
+   [request policy](/docs/security/api-protection#request-policy) (`405`/`415`/`413 policy_violation`).
 7. **Coraza WAF inspection** — virtual patches, full CRS and custom rules, then the service's
    [MCP guard, OpenAPI spec or JSON Schema](/docs/security/api-protection), via a per-service engine
    when that service has its own exceptions, rules or specs, else the shared default engine.
@@ -35,7 +43,8 @@ Every request runs through a single `Handle` method, in strict order:
 
 Two exceptions skip most of this:
 
-- [Trusted IPs](/docs/security/blocking#trusted-ips) skip stages 1–8, including the WAF.
+- [Trusted IPs](/docs/security/blocking#trusted-ips) skip stages 1–8, including the WAF, but not JWT
+  verification or client certificates.
 - [Open crawler paths](/docs/security/blocking#open-crawler-paths) (`/robots.txt`, sitemaps,
   `/llms.txt`) skip everything except the WAF.
 
@@ -74,22 +83,25 @@ decide when it comes back. A one-shot reachability probe also runs when a servic
 [Services & Load Balancing](/docs/configuration/services).
 
 All HTTP servers set a 10-second header read timeout, a 120-second idle timeout and a 1 MiB header
-limit against slowloris-style attacks. Body reads have no timeout, so uploads, server-sent events and
-WebSockets keep streaming. On `SIGINT`/`SIGTERM` Palisade drains in-flight requests (up to 10
+limit against slowloris-style attacks. A body buffered for WAF inspection must arrive within 10
+seconds plus 16 KiB/s of its size (`408` otherwise); bodies that aren't inspected have no timeout, so
+uploads, server-sent events and WebSockets keep streaming. Each client is limited to 256 concurrent TCP
+connections by default (`--max-conns-per-ip`), and HTTP/2 and HTTP/3 connections to 100 streams. On `SIGINT`/`SIGTERM` Palisade drains in-flight requests (up to 10
 seconds) and the log queue before exiting.
 
 ## State & storage
 
-SQLite is the zero-dependency default, using the pure-Go `modernc.org/sqlite` driver with WAL mode
-and a bounded connection pool. MySQL/MariaDB and Postgres-compatible servers (including CockroachDB
-and Neon) are also supported through `--db-driver`; the schema is created and upgraded automatically
-on every backend. Services, rules, TLS state, sessions, rate-limit snapshots, request logs, and
+Everything lives in one SQLite file, using the pure-Go `modernc.org/sqlite` driver with WAL mode and
+a bounded connection pool; the schema is created and upgraded automatically. (MySQL and Postgres
+support was removed in v3.2.8; see [Upgrading](/docs/installation/upgrading).) Configuration can be
+moved between instances as a JSON file with
+[`config export` / `config import`](/docs/configuration/cli#config-export--config-import--move-configuration-as-a-file). Services, rules, TLS state, sessions, rate-limit snapshots, request logs, and
 settings are DB-backed. Uploaded TLS private keys are the exception — those live on disk at mode
 `0600`.
 
 The optional `--db-key-file` protects stored live credentials with AES-256-GCM, including the bot
 cookie HMAC key, per-user TOTP secrets, the email token, webhook secret, CAPTCHA secret, SSO client
-secret, TypeSafe key, CrowdSec bouncer keys, and saved external-DB credentials. Enabling it seals existing plaintext secrets in place; a missing or incorrect key for
+secret and CrowdSec bouncer keys. Enabling it seals existing plaintext secrets in place; a missing or incorrect key for
 already-encrypted values fails loudly. The installer enables this by default and keeps the key at
 `/etc/palisade/db.key`, outside the application data directory.
 
@@ -111,7 +123,7 @@ startup and is the deliberate exception.
 The GeoLite2-Country and DB-IP ASN Lite databases, the OWASP CRS (v4.25.2 LTS) and virtual patches,
 compiled Tailwind CSS, minified dashboard JS, and the dashboard's vendored fonts and libraries are
 all `//go:embed`-ed into the binary — there is nothing external to fetch
-at runtime. The database drivers, GeoIP, and ASN packages are pure Go, so binaries are built with
+at runtime. The SQLite driver, GeoIP, and ASN packages are pure Go, so binaries are built with
 `CGO_ENABLED=0` and run with no shared-library dependencies.
 
 ## Background subsystems
@@ -138,6 +150,6 @@ process lifetime, each wired to a DB-backed config that can change live from the
 
 ## TLS fingerprinting
 
-[JA4 and JA3](/docs/security/bot-and-fingerprinting) are computed in `GetConfigForClient` at handshake
+[JA4](/docs/security/bot-and-fingerprinting) is computed in `GetConfigForClient` at handshake
 time and cached per-connection until the connection closes, so per-request lookup never touches the
 network or the database.

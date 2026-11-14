@@ -12,8 +12,7 @@ keywords: [installation, install script, docker, systemd, ghcr, one-line install
 curl -fsSL https://waf-install.astrareconslabs.com/palisade-waf/install.sh | sudo bash
 ```
 
-The installer is **interactive** (it prompts for admin credentials, HTTPS setup, and an optional
-external database).
+The installer is **interactive** (it prompts for admin credentials and HTTPS setup).
 
 What the installer does:
 
@@ -23,11 +22,10 @@ What the installer does:
    installing to `/usr/local/bin/palisade`. When `cosign` is installed, it also verifies the keyless
    signature on `checksums.txt` (signed in the release workflow via GitHub OIDC).
 4. Prompts interactively for:
-   - **Admin email** and **password** (entered twice).
+   - **Admin email** (re-prompted until it is a real email address, since it is your login name) and
+     **password** (entered twice, at least 12 characters, not the email).
    - An optional **domain name** — if given, Let's Encrypt is used; if blank, a self-signed cert is
      generated for the server's public IP.
-   - An optional external **MySQL/MariaDB or Postgres-compatible database**. SQLite remains the
-     default.
 5. Creates a dedicated non-root system user `palisade` (with only `CAP_NET_BIND_SERVICE`, so
    it can bind 80/443 without being root).
 6. Creates `/var/lib/palisade/` (data + certs), seeds admin credentials into the database via
@@ -39,7 +37,8 @@ What the installer does:
    The [access log](/docs/configuration/access-log) is on by default at
    `/var/log/palisade/access.log`.
 7. Installs and starts three systemd units: the main service, plus a **prune service + timer**
-   (log retention and backend-aware vacuuming, runs every 15 days).
+   (log retention and SQLite vacuuming, runs every 15 days). Both units run in a tight
+   [systemd sandbox](/docs/installation/systemd#sandboxing).
 
 Useful environment overrides:
 
@@ -95,7 +94,7 @@ Never run bare `go build` after editing JavaScript in `static/js/src/*.js` — t
 ## Option C — Pre-built release binaries
 
 ```bash
-make dist          # cross-compiles linux/amd64, linux/arm64, windows/amd64 (CGO_ENABLED=0)
+make dist          # cross-compiles linux/amd64 and linux/arm64 (CGO_ENABLED=0)
 make checksums     # writes dist/checksums.txt
 ```
 
@@ -139,3 +138,22 @@ The minimal image includes CA certificates for ACME, threat-intel downloads, ema
 Mount a separate file containing at least 32 bytes of high-entropy key material and pass
 `--db-key-file` if you want secrets-at-rest encryption; the container does not generate that key
 automatically.
+
+The image runs as the non-root user **uid 65532**:
+
+- Ports below 1024 need a mapping (`-p 80:8080`) or `--cap-add NET_BIND_SERVICE`.
+- A volume created by an older image that still ran as root is owned by root. Palisade checks this at
+  startup and prints the fix; run it once:
+
+  ```bash
+  docker run --rm -v coraza-waf-data:/data alpine chown -R 65532:65532 /data
+  ```
+
+For local development the repository's `compose.yml` (formerly `docker-compose.yml`) runs the image
+with a read-only root filesystem, every capability dropped and `no-new-privileges`, so anything
+written at runtime lives under `/data`:
+
+```bash
+docker compose run --rm waf setup --db /data/waf.db --admin-email you@example.com
+docker compose up --build
+```

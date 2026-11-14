@@ -13,8 +13,8 @@ curl -fsSL https://waf-install.astrareconslabs.com/palisade-waf/install.sh | sud
 ```
 
 On an existing install it downloads + verifies the new binary, replaces it, rewrites the units, and
-restarts the service. **Admin credentials, certificates, the encryption key, and the selected
-database backend are preserved on upgrade.** Pin a version with:
+restarts the service. **Admin credentials, certificates and the encryption key are preserved on
+upgrade.** Pin a version with:
 
 ```bash
 curl -fsSL https://waf-install.astrareconslabs.com/palisade-waf/install.sh | sudo PALISADE_VERSION=v3.1.0 bash
@@ -25,6 +25,44 @@ unit file but never touches that file. See
 [Running as a systemd Service](/docs/installation/systemd#adding-your-own-flags).
 
 For source installs, `git pull && make build`, then restart the service/process.
+
+:::danger[Upgrading to 3.2.8 or later: MySQL and Postgres are removed]
+Palisade now stores everything in SQLite. The installer moves an install that ran on MySQL or
+Postgres for you: before replacing the binary it runs `palisade config export` with the old one, then
+imports the file into `/var/lib/palisade/waf.db`. Services, rules, users, API keys and settings come
+across. **The request log does not**, and the old database is left untouched.
+
+Releases before v3.2.5 have no `config export`, so upgrade those to v3.2.7 first
+(`PALISADE_VERSION=v3.2.7`). Without the installer, run the two steps yourself:
+
+```bash
+# with the previous release, against the old database
+palisade config export --db-driver postgres --db 'postgres://...' \
+  --db-key-file /etc/palisade/db.key --out config.json
+# with the new release
+palisade config import --db /var/lib/palisade/waf.db \
+  --db-key-file /etc/palisade/db.key config.json
+```
+
+Then drop `--db-driver` and point `--db` at the SQLite file. A MySQL or Postgres `--db-driver` or
+connection string now stops startup and prints these steps. `--db-driver sqlite` is still accepted so
+older units keep working.
+:::
+
+:::warning[Upgrading to 3.2.8 or later: removed flags and features]
+- The ClickHouse warehouse mirror is gone. A leftover `--warehouse-url` flag stops startup with the
+  flag named, and the installer refuses to upgrade while `palisade.env` still sets a removed flag.
+- TypeSafe ASN classification is gone; the threat score uses the built-in hosting/VPN heuristic only.
+  The stored TypeSafe key and its call log are deleted on startup.
+- JA3 fingerprints are no longer computed or logged (JA4 remains).
+- There is no Windows release build any more.
+:::
+
+:::note[Docker volumes from before 3.2.4]
+The image now runs as uid 65532. A volume created while it ran as root needs a one-time
+`docker run --rm -v <volume>:/data alpine chown -R 65532:65532 /data`; Palisade prints this at startup
+if the volume isn't writable.
+:::
 
 :::note[The installer supports v2.5.1 and later only]
 Versions before v2.5.1 are deprecated. Pinning `PALISADE_VERSION` to anything older is refused.

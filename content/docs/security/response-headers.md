@@ -2,7 +2,7 @@
 sidebar_position: 7
 title: Security Response Headers
 description: Browser-hardening headers applied to every response, plus the forced Server header.
-keywords: [security headers, hsts, x-frame-options, response headers]
+keywords: [security headers, hsts, x-frame-options, response headers, cookie hardening, httponly, samesite, secure cookie]
 ---
 
 
@@ -26,7 +26,7 @@ backend sent. Every request also gets an `X-Request-ID`, which is shown on
 So the client sees one copy of each header above, Palisade drops the backend's own versions of them
 (plus the legacy `X-XSS-Protection`). It also strips headers that only fingerprint your stack:
 
-- `X-Powered-By`, `X-AspNet-Version`, `X-AspNetMvc-Version`
+- `X-Powered-By`, `X-AspNet-Version`, `X-AspNetMvc-Version`, `X-Runtime`, `X-Generator`
 - `Via` and `X-Varnish` (also unset in the bundled VCL)
 - the internal `X-Cache-Service` / `X-Cache-Url` Varnish tags
 
@@ -37,9 +37,23 @@ longer sent. An earlier version also sent `X-Protected-By`. Palisade no longer a
 in response headers beyond `Server`.
 :::
 
+## Hardening backend cookies
+
+Many backends set session cookies without `HttpOnly`, `SameSite` or `Secure`. Turn on **Harden
+backend cookies** on a service's **Schema** tab (`POST /admin/services/cookies/:id`, off by default)
+and Palisade adds what's missing to every `Set-Cookie` from the backend:
+
+- `HttpOnly`
+- `SameSite=Lax`
+- `Secure`, only when the client connection is HTTPS
+
+Attributes the backend already set are kept. List cookies that the page's JavaScript must read, or
+that must be sent cross-site, in **Leave these cookies alone** (e.g. `csrftoken, theme`).
+
 ## Content-Security-Policy
 
 The admin dashboard is served with a strict `Content-Security-Policy`. All its scripts, fonts and
 styles are vendored into the binary, with no inline code and no external origins. Proxied responses
-keep whatever CSP the backend sends. For a report-only policy on your own sites, see
-[Script Inventory](/docs/security/script-inventory).
+keep whatever CSP the backend sends, unless you turn on the
+[Script Inventory](/docs/security/script-inventory), which adds a report-only or enforced script policy
+per service.

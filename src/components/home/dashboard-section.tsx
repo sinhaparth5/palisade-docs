@@ -28,7 +28,7 @@ export function DashboardSection() {
           <TiltFigure className="m-0 -rotate-[0.5deg] overflow-hidden rounded-md border border-rule bg-paper-2 p-2 shadow-[0_18px_40px_-24px_rgba(0,0,0,0.45)]">
             <Image
               src={dashboardImage}
-              alt="Palisade admin dashboard with live traffic charts, a request log, and threat summaries"
+              alt="Palisade v3.3.3 admin dashboard: today's requests, blocked, challenged and visitor counts, live requests per second and latency, 24 hours of allowed and blocked traffic, top countries, and enforcement by WAF rules, IP blocklist, rate limits and bot challenges"
               sizes="(max-width: 1024px) 92vw, 860px"
               quality={88}
               className="h-auto w-full rounded-sm"

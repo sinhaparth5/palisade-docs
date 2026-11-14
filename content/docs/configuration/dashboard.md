@@ -58,19 +58,24 @@ blocklist, geo, WAF engine, or rate limiter). No file edit or restart is require
 - **Per-service TLS requires a host-matched service.** Prefix services can't have their own
   certificate (there's no SNI host to key it on) — the TLS panel will say so.
 
-**Edit / manage a service:** the **Manage** button on a row opens the service modal. Its tabs:
+**Edit / manage a service:** the **Manage** button on a row opens the service modal. At the top, the
+**Name** field renames the service (`POST /admin/services/name/:id`, admin role). Empty or taken names
+are refused. The service's IP and geo rules, WAF rule exceptions, custom rules and rule feedback move
+to the new name in one step, and its WAF engine is rebuilt; past request logs keep the old name.
+
+Its tabs:
 
 | Tab | What's on it |
 |---|---|
-| **Rate Limit** | Per-service `rps` and `burst` (`POST /admin/services/ratelimit`). See [Rate Limiting](/docs/configuration/rate-limiting#per-service-limits). |
-| **Backends** | Extra backends, load-balancing policy and health checks. See [Services & Load Balancing](/docs/configuration/services#multiple-backends-and-health-checks). |
+| **Rate Limit** | Per-service `rps` and `burst`, plus per-path limits (`POST /admin/services/ratelimit`). See [Rate Limiting](/docs/configuration/rate-limiting#per-service-limits). |
+| **Backends** | Extra backends, load-balancing policy, health checks and a trusted certificate for self-signed HTTPS backends. See [Services & Load Balancing](/docs/configuration/services#multiple-backends-and-health-checks). |
 | **Hosts** | Extra hostnames and a canonical redirect. See [Extra hostnames](/docs/configuration/services#extra-hostnames). |
 | **Availability** | Maintenance mode and the waiting room. See [Maintenance mode](/docs/configuration/services#maintenance-mode). |
 | **Bot** | Bot mode (`inherit`/`always`/`off`, `POST /admin/services/bot/:id`), AI crawler policy, login protection and the leaked password check. See [Bot Protection](/docs/security/bot-and-fingerprinting) and [Login Protection](/docs/security/login-protection). |
-| **Schema** | JSON Schema, OpenAPI, MCP guard, script inventory and response inspection. See [API & MCP Protection](/docs/security/api-protection). |
+| **Schema** | JSON Schema, OpenAPI, MCP guard, JWT verification, script inventory (CSP), cookie hardening, request policy and response inspection. See [API & MCP Protection](/docs/security/api-protection). |
 | **Cache** | Varnish caching, session-aware caching, tuning, per-path rules and compression. See [Varnish](/docs/configuration/varnish). |
 | **TLS** | Certificates (below), HTTP/3 and client certificates. See [TLS / HTTPS](/docs/configuration/tls). |
-| **Uploads** | Large JavaScript uploads. See [WAF Inspection](/docs/security/waf#request-body-size-limits). |
+| **Uploads** | Large JavaScript uploads and the multipart upload limit. See [WAF Inspection](/docs/security/waf#request-body-size-limits). |
 
 Each service row shows tags for the features turned on and a health dot per backend.
 
@@ -78,7 +83,7 @@ Each service row shows tags for the features turned on and a health dot per back
 registry.
 
 **Routes:** `GET /services`, `POST /services` (add), `DELETE /services/:id`,
-`POST /services/ratelimit`, `POST /services/bot/:id`, plus the TLS routes below.
+`POST /services/name/:id`, `POST /services/ratelimit`, `POST /services/bot/:id`, plus the TLS routes below.
 
 ## Blocks — IP rules & geo/country rules
 
@@ -315,7 +320,8 @@ roles that can't use them.
 **Change your credentials.** Enter your **current password**, then a **new email** and/or **new
 password** (typed twice). Submitting (`POST /admin/settings/credentials` with `current_password`,
 `new_email`, `new_password`, `confirm_password`) re-hashes the password with bcrypt and invalidates
-old sessions.
+old sessions. A new password needs at least 12 characters, must not equal your email and must not be
+in the Have I Been Pwned breach list.
 
 **Users and single sign-on.** Owners add users, change roles, send invites and configure OIDC here.
 See [Users, Roles & SSO](/docs/configuration/users-and-sso).
@@ -405,22 +411,14 @@ pre-filled once saved, so leave it blank on subsequent saves to keep the existin
 report** (`POST /admin/settings/email/test`) sends an on-demand report from the currently saved config,
 so you can verify credentials before enabling the schedule.
 
-**Database backup.** For SQLite deployments, `POST /admin/settings/backup` downloads a consistent,
-vacuumed copy of `waf.db` while the server remains live. External backends need their native backup
-tools. Treat a download as sensitive. With `--db-key-file`, live credentials inside it remain
+**Database backup.** `POST /admin/settings/backup` downloads a consistent,
+vacuumed copy of `waf.db` while the server remains live. Treat a download as sensitive. With `--db-key-file`, live credentials inside it remain
 encrypted, and the key is deliberately not included.
 
-**Database connection.** The card can build a MySQL/MariaDB or Postgres-compatible connection from
-separate fields, or accept a raw DSN. **Test connection** performs a five-second dial and ping without
-changing the live server. **Migrate configuration here** copies services, rules and settings,
-secrets, certificates, API keys, threat-intel data, webhooks, threat scores, and JA4 reputation into
-an empty target; request logs, sessions, and transient rate-limit state are excluded. The source is
-never modified, but a partially written target may need to be emptied before retrying a failed
-migration. Test results show the `--db-driver` and `--db` flags to use on restart; saving or migrating
-does not switch the current process. The migration connection has no key-file input, so secret values
-land in the target as plaintext; keep `--db-key-file` on the restarted service so its first startup
-seals them in place immediately. Certificate records migrate, while their referenced cert/key files
-remain under `--certs` on disk.
+**Configuration export.** Next to Backup, owners can download the configuration (services, rules,
+users, API keys and settings, without the request log) as one JSON file. It is the same file
+`palisade config export` writes, and `palisade config import` loads it into another instance. See
+[`config export` / `config import`](/docs/configuration/cli#config-export--config-import--move-configuration-as-a-file).
 
 **API Keys.** The **API Keys** card creates and revokes bearer tokens for the [REST
 API](/docs/configuration/rest-api). Enter a **name** (e.g. `ci-deploy`), optionally check
@@ -430,15 +428,6 @@ exactly once**; copy it immediately, since only its hash and a short display pre
 afterward. A key's row shows a **Read-only** badge when scoped that way. **Revoke** a key with its
 row's delete control (`DELETE /admin/settings/api-keys/:id`) — any request already using that token
 is rejected on its very next call.
-
-**AI Classification.** The per-IP [threat score](/docs/security/threat-score)'s ASN/hosting component
-is a hardcoded keyword heuristic by default. The **AI Classification** card lets you refine it with
-[TypeSafe](https://typesafe.ai): once enabled with an API key, an ASN organization name the heuristic
-doesn't recognize is judged once, off the request path and off the logging worker, and the result is
-cached — so this never adds latency to a request. Toggle **Enable AI-assisted ASN classification** and
-paste a **TypeSafe API key** (`POST /admin/settings/typesafe` with `typesafe_enabled`,
-`typesafe_api_key`); the key field is never shown again once saved, so leave it blank on later saves
-to keep the stored value. Off by default — the keyword heuristic keeps working without this.
 
 **Reload custom WAF rules.** If you use `--waf-rules` to layer custom `.conf` files on top of the
 OWASP CRS, editing those files on disk is **not** picked up automatically. Send `SIGHUP` to the
@@ -458,4 +447,6 @@ section already hot-reload on save.
 - **Metrics** at `/admin/metrics` serve Prometheus exposition format behind the dashboard session.
   For Prometheus, scrape `/admin/api/v1/metrics` with an API key instead. See
   [Metrics](/docs/configuration/metrics).
-- **AI Usage** (`/admin/ai-usage`) lists every TypeSafe classification call.
+- **Profiling** at `/admin/debug/pprof/` serves Go's `net/http/pprof` for owners only, behind the
+  dashboard session (not on the REST API, never on service hosts). Cross-site requests are refused and
+  `?seconds=` is capped at 60 for CPU profiles and traces.

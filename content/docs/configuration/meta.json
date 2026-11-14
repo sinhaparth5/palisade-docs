@@ -12,7 +12,6 @@
     "log-retention",
     "access-log",
     "metrics",
-    "analytics",
     "varnish",
     "email-alerts"
   ]

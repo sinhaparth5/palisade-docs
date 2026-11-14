@@ -2,7 +2,7 @@
 sidebar_position: 3
 title: REST API
 description: Bearer-token authenticated API for services, IP rules, bans, custom WAF rules and metrics, separate from the dashboard's session cookie.
-keywords: [rest api, bearer token, api keys, services api, ip rules api, custom waf rules api]
+keywords: [rest api, bearer token, api keys, services api, ip rules api, geo rules api, rule exceptions, virtual patches, logs api, mcp server, model context protocol, claude, custom waf rules api]
 ---
 
 
@@ -65,7 +65,7 @@ validation and hot-reload behavior are identical to using the UI.
 
 | Field | Type | Notes |
 |---|---|---|
-| `name`, `host`, `prefix`, `backend` | string | Core routing fields. |
+| `name`, `host`, `prefix`, `backend` | string | Core routing fields. Changing `name` renames the service and moves its rules with it. See [Renaming a service](/docs/configuration/services#renaming-a-service). |
 | `host_aliases` | string array | Replaces the whole alias list. See [Extra hostnames](/docs/configuration/services#extra-hostnames). |
 | `canonical_host` | string | `""` = no redirect; otherwise the host or one of its aliases. |
 | `backends` | string array | Replaces the whole backend list; the first entry is the primary. |
@@ -74,6 +74,7 @@ validation and hot-reload behavior are identical to using the UI.
 | `rate_limit_rps`, `rate_limit_burst` | number, int | Per-service rate limit. |
 | `bot_mode` | string | `inherit`, `always` or `off`. |
 | `allow_large_js_uploads`, `http3_enabled`, `compress_enabled` | bool | Per-service toggles. |
+| `multipart_limit_mb` | int | Multipart upload limit in MiB. `0` = the 12.5 MiB default, at most `256`. See [Request body size limits](/docs/security/waf#request-body-size-limits). |
 | `request_schema`, `schema_mode` | string | JSON Schema text and `off`/`log`/`enforce`. |
 
 ### IP rules
@@ -95,6 +96,36 @@ validation and hot-reload behavior are identical to using the UI.
 
 The WAF reloads after each change. See [Custom rules](/docs/security/waf#custom-rules).
 
+### Request logs and stats
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/logs` | Request logs, newest first. Query: `app`, `ip`, `status` (`2xx`\|`3xx`\|`4xx`\|`5xx`\|`blocked`\|`cache_error`), `from`/`to` (RFC 3339), `limit` (default 50, max 500), `offset`. |
+| `GET` | `/logs/:id` | One request with its captured (redacted) headers and WAF matches. |
+| `GET` | `/logs/stream` | Live tail as JSON Server-Sent Events, with a `: ping` comment every 30 seconds. |
+| `GET` | `/stats` | Overview counters, including the top blocked IPs. |
+
+### Geo rules
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/geo-rules` | List country rules. |
+| `POST` | `/geo-rules` | Create. Body: `app_name` (empty = global, otherwise an existing service), `country_code` (two-letter ISO), `rule_type` (`block`\|`allow`). Reloads the geo blocker and the threat score's geo rules. |
+| `DELETE` | `/geo-rules/:id` | Remove. |
+
+### WAF rule exceptions and virtual patches
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/rule-exceptions` | List global and per-service rule exceptions. Each entry's id belongs to its own table. |
+| `POST` | `/rule-exceptions` | Turn a rule off. Body: `rule_id`, optional `service` (empty = every service), `reason`. Saving an existing exception again updates its reason. |
+| `DELETE` | `/rule-exceptions/global/:id` | Remove a global exception. |
+| `DELETE` | `/rule-exceptions/services/:id` | Remove a per-service exception. |
+| `GET` | `/vpatches` | List the shipped [virtual patches](/docs/security/waf#virtual-patches) and whether each is on. |
+| `PUT` | `/vpatches/:id` | Body: `{"enabled": bool}`, optional `service`, `reason`. Turning a patch off adds an ordinary rule exception; turning it on removes it. Unknown ids are `404`. |
+
+Each change rebuilds the WAF. Unknown services are a `400`.
+
 ### Metrics
 
 `GET /metrics` returns the Prometheus exposition, the same as the dashboard's `/admin/metrics`.
@@ -111,6 +142,50 @@ writes.
 | `GET` | `/bans` | `ip-rules` filtered to global block rows only. |
 | `POST` | `/bans` | Body: `ip`, optional `reason`. Written with a `"Banned via API — "` note prefix — distinct from autoban's own `"Auto-banned — "` prefix, so the two sources stay distinguishable on the IP Rules page's amber "Auto" badge. |
 | `DELETE` | `/bans/:id` | Unban — identical to `DELETE /ip-rules/:id` on the same row. |
+
+### MCP server for AI assistants
+
+`POST /mcp` is a read-only [Model Context Protocol](https://modelcontextprotocol.io) server over
+Streamable HTTP. Claude, Cursor and other MCP clients can use it to search logs, read one request, see
+stats, look up an IP, and list services and rules. Use a **read-only** API key:
+
+```json
+{
+  "mcpServers": {
+    "palisade": {
+      "type": "http",
+      "url": "https://waf.example.com/admin/api/v1/mcp",
+      "headers": { "Authorization": "Bearer cwaf_…" }
+    }
+  }
+}
+```
+
+With Claude Code:
+
+```bash
+claude mcp add --transport http palisade https://waf.example.com/admin/api/v1/mcp \
+  --header "Authorization: Bearer cwaf_…"
+```
+
+| Tool | What it returns |
+|---|---|
+| `search_logs` | Request logs with the same filters as `GET /logs`, at most 100 rows. |
+| `get_log` | One request in detail. |
+| `stats` | The overview counters. |
+| `ip_info` | What Palisade knows about one IP. |
+| `list_services` | Configured services. |
+| `list_rules` | IP, geo and WAF rules. |
+
+The tools are **read-only by construction**: each replays the call as a `GET` through the REST views
+above and has no other way into Palisade. Request logs carry attacker-controlled text (a
+`User-Agent: ignore previous instructions…`), and with no write tool that text has nothing to act on.
+The tools also describe those fields to the assistant as untrusted data. Every result is capped at
+256 KiB.
+
+The endpoint speaks JSON-RPC 2.0 (`initialize`, `ping`, `tools/list`, `tools/call`). Batches and
+browser `Origin`s are refused, `GET` answers `405` (there is no SSE stream), and MCP calls are not
+written to the audit log.
 
 ## Response shapes
 

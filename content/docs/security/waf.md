@@ -2,7 +2,7 @@
 sidebar_position: 1
 title: WAF Inspection
 description: Coraza v3 with the OWASP Core Rule Set compiled in, plus virtual patches, custom rules, rule exceptions, and opt-in response inspection.
-keywords: [waf inspection, coraza, owasp crs, sql injection, xss, rce, virtual patching, cve, custom rules, response inspection]
+keywords: [waf inspection, coraza, owasp crs, multipart upload limit, body size, sql injection, xss, rce, virtual patching, cve, custom rules, response inspection]
 ---
 
 
@@ -67,17 +67,41 @@ cost of running CRS's ~200 rules over a body scales with how much of it ends up 
 
 | Body shape | Limit | Why |
 |---|---|---|
-| `multipart/form-data` | **~12.5 MiB** (`SecRequestBodyLimit`) | Coraza routes file parts to `FILES`, not `ARGS`, so CRS never scans the file bytes. A multipart upload at this size costs only tens of milliseconds. |
+| `multipart/form-data` | **12.5 MiB** by default, configurable per service up to **256 MiB** | Coraza routes file parts to `FILES`, not `ARGS`, so CRS never scans the file bytes. A multipart upload at this size costs only tens of milliseconds. |
 | Everything else that's inspected (JSON, plain text, etc.) | **128 KiB** | A body with no file parts is parsed into `ARGS` in full, and every byte of it is run through CRS's rule set. |
 | Content types Coraza doesn't recognize as a form (images, binaries, video, arbitrary uploads) | **not inspected — streamed straight through** | Coraza only infers a body processor for `x-www-form-urlencoded` and `multipart/form-data`. Without this gate, CRS rule 901340 would force every other content type to be parsed as `URLENCODED` too, turning a binary payload into one junk `ARGS` entry per 256 bytes. |
 
-The 128 KiB figure is enforced in application code, not by a Coraza directive — Coraza parses
+Both limits are enforced in application code with a `413`, not by a Coraza directive — Coraza parses
 `SecRequestBodyNoFilesLimit` but does not act on it
-([corazawaf/coraza#896](https://github.com/corazawaf/coraza/issues/896)), which is also why that
-directive doesn't appear in the block above.
+([corazawaf/coraza#896](https://github.com/corazawaf/coraza/issues/896)), and its
+`SecRequestBodyLimit` is set to the 256 MiB cap so each service can raise its own limit. A request
+over the limit is rejected, not silently truncated and inspected anyway.
 
-A request over these limits is rejected (`SecRequestBodyLimitAction Reject`), not silently truncated
-and inspected anyway.
+### Multipart upload limit per service
+
+Apps like Immich, Nextcloud or Vaultwarden upload files larger than 12.5 MiB as multipart forms. On a
+service's **Uploads** tab, set **Multipart upload limit (MiB)** (or `multipart_limit_mb` in the
+[REST API](/docs/configuration/rest-api)). `0` keeps the 12.5 MiB default and the most is 256 MiB;
+other services keep the default. You can also lower it.
+
+The WAF holds the whole body **in memory** while it checks it, so a high limit costs that much RAM per
+upload in flight. Very large uploads (long videos) are still out of reach; for those, use a separate
+service with the [request policy](/docs/security/api-protection#request-policy) and an uninspected
+content type.
+
+### Slow bodies
+
+While a body is buffered for inspection it has a read deadline of 10 seconds plus its size at
+16 KiB/s. A client that sends slower than that gets `408` with `Connection: close`, so a slow upload
+can't hold an inspection slot forever. Bodies that aren't inspected stream to the backend with no
+deadline. Timeouts are counted in `palisade_waf_body_timeouts_total`.
+
+### Argument limit
+
+Coraza stops collecting arguments after 1000 per collection, and the values past that were never
+inspected, so a payload placed after 1000 harmless JSON values, form fields or query parameters would
+pass. Rule **2100000** now answers `400` to any request over the limit. If a service legitimately
+sends more, add a [per-service exception](#per-service-exceptions) for rule 2100000.
 
 :::note[Large binary uploads, e.g. to an S3-compatible backend]
 Some backends, S3-compatible object storage in particular, accept large `application/javascript` /
@@ -161,7 +185,14 @@ client asked for. A blocked response doesn't count against the backend's health 
 
 Each engine keeps a short cache of recent verdicts (5-second TTL, 4096 entries) so a burst of
 identical requests is inspected once. The cache key covers the client IP, method, host, raw path and
-query, every header and the body. Requests carrying `Cookie` or `Authorization` are never cached.
+query, every header and the body. `Cookie` and `Authorization` are part of that key like any other
+header, so requests from logged-in users are cached too, but only per exact value: two users never
+share a verdict. Hits and misses are counted in `palisade_waf_verdict_cache_hits_total` and
+`palisade_waf_verdict_cache_misses_total`.
+
+The engine also runs with Coraza's regex prefilter on, which skips a regex when the literals it needs
+aren't in the input. Large JSON bodies are about a third cheaper to inspect and response inspection
+about 80% cheaper, with the same CRS matches.
 
 ## Disabling a noisy rule
 

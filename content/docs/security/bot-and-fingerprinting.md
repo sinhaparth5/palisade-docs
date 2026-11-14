@@ -2,7 +2,7 @@
 sidebar_position: 3
 title: Bot Protection & Fingerprinting
 description: Header-based bot scoring, a proof-of-work challenge with a CAPTCHA fallback, verified crawlers, Web Bot Auth, AI crawler policy, JA4 TLS fingerprinting and ASN lookup.
-keywords: [bot protection, js challenge, ja4, ja3, tls fingerprinting, proof of work, turnstile, hcaptcha, web bot auth, ai crawlers, gptbot]
+keywords: [bot protection, js challenge, challenge_required, single-page app, ja4, tls fingerprinting, proof of work, turnstile, hcaptcha, web bot auth, ai crawlers, gptbot]
 ---
 
 
@@ -15,7 +15,9 @@ keywords: [bot protection, js challenge, ja4, ja3, tls fingerprinting, proof of 
   [Verified crawlers](#verified-crawlers).
 - When bot protection is active, requests without a valid bypass cookie are redirected to a
   **JavaScript proof-of-work challenge** (`/_cz/challenge`) — a SHA-256 nonce that a real browser
-  solves in under a second, then receives an HMAC-signed bypass cookie.
+  solves in under a second, then receives an HMAC-signed bypass cookie. The cookie is bound to the
+  client: it signs the expiry, the visitor ID and the client's IP (IPv6 by /64), so a solved cookie
+  copied to another IP is challenged again.
 - **Per-service bot mode** overrides the global setting:
   - `inherit` — use the global setting.
   - `always` — challenge every non-trusted client regardless of score.
@@ -25,6 +27,35 @@ Tune the global challenger (enabled, threshold, TTL) under **Settings → Bot pr
 (`POST /admin/settings/bot`, meta keys `bot_enabled`/`bot_threshold`/`bot_ttl`, defaulting to
 **disabled, threshold 8, TTL 3600s** if never configured), and set per-service overrides from each
 service's Manage panel. See the [dashboard walkthrough](/docs/configuration/dashboard).
+
+### Challenges for API calls and single-page apps
+
+A page load that gets challenged is redirected (`307`) to the challenge page. A `fetch` or XHR call
+can't run the challenge, so instead it gets:
+
+```http
+HTTP/1.1 403 Forbidden
+Content-Type: application/json
+
+{"error":"challenge_required","challenge_url":"/_cz/challenge?…"}
+```
+
+Palisade treats a request as an API call when `Sec-Fetch-Mode` is anything other than `navigate`, or,
+for clients that don't send it, when it carries `X-Requested-With: XMLHttpRequest` or an `Accept`
+header that prefers JSON over HTML. The `challenge_url` returns the user to the same-host page that
+made the call (from `Referer`). In your front end:
+
+```js
+const res = await fetch("/api/items");
+if (res.status === 403) {
+  const body = await res.json().catch(() => null);
+  if (body?.error === "challenge_required") location.href = body.challenge_url;
+}
+```
+
+A cross-origin API can't read that body (there are no CORS headers on it), so treat any failed request
+to it the same way. Both answers are logged with the same action, so automatic banning and the threat
+score see no difference.
 
 Services with [login protection](/docs/security/login-protection) always challenge their login
 paths, even when the service's bot mode is `off`. Web app manifests are exempt from the challenge
@@ -155,22 +186,23 @@ user agent: only Meta's crawlers come from a dedicated network, so OpenAI is ver
 (their published IP lists change, so they're not hardcoded). `Google-Extended` and
 `Applebot-Extended` are robots.txt tokens, not user agents; control them in `robots.txt`.
 
-## JA4 / JA3 TLS fingerprinting
+## JA4 TLS fingerprinting
 
-**JA4** (primary) and **JA3** (legacy) fingerprints are computed during the **TLS handshake**, before
+A **JA4** fingerprint is computed during the **TLS handshake**, before
 the HTTP request is parsed. This provides a TLS-layer client signal that is
 independent of headers and can't be spoofed by editing the User-Agent.
 
-- Each fingerprint is looked up per request. If the connection came from a Cloudflare address, the
-  `Cf-Ja4` / `Cf-Ja3-Fp` headers are used instead of a local computation, since Cloudflare already
-  computed them at its edge. From any other peer those headers are ignored.
+- The fingerprint is looked up per request. If the connection came from a Cloudflare address, the
+  `Cf-Ja4` header is used instead of a local computation, since Cloudflare already computed it at its
+  edge. From any other peer that header is ignored.
 - HTTP/3 connections get a JA4 with the `q` (QUIC) transport prefix.
 - **JA4 sorts cipher suites and extensions before hashing**, so a client that randomizes handshake
-  order per connection still produces a stable fingerprint. JA4 is therefore the primary signal.
+  order per connection still produces a stable fingerprint.
 
-:::warning[Do not build new detection logic on JA3]
-JA3's MD5 hash has no such sorting and is trivially evaded by reordering the handshake. It is retained
-only for continuity with existing log data and external JA3-keyed threat feeds.
+:::note[JA3 was removed in v3.2.6]
+JA3's MD5 hash has no such sorting and is trivially evaded by reordering the handshake, so Palisade no
+longer computes, reads (`Cf-Ja3-Fp`) or logs it. Older databases may still have an unused
+`requests.ja3_hash` column; new installs don't create it.
 :::
 
 ### JA4 format

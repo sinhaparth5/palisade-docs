@@ -2,7 +2,7 @@
 sidebar_position: 4
 title: Rate Limiting
 description: Per-client token-bucket limiting, global and per service, with IPv6 clients keyed by /64.
-keywords: [rate limiting, token bucket, per-ip limiting, ipv6]
+keywords: [rate limiting, token bucket, per-ip limiting, per-path rate limit, max-conns-per-ip, ipv6]
 ---
 
 
@@ -60,6 +60,40 @@ the global limit, so a request must clear both. Per-service limits are never aff
 [adaptive enforcement](/docs/security/threat-score#adaptive-enforcement) — that only scales the
 global limiter.
 
+### Per-path limits
+
+Below the `rps`/`burst` fields, the **Path limits** box on the **Rate Limit** tab takes one rule per
+line, on top of the service limit:
+
+```text
+POST /password-reset 5/h 3
+* /search 2/s 10
+GET /export 10/m 2
+```
+
+Each line is `METHOD /prefix rate burst`:
+
+- `METHOD` is an HTTP method or `*` for any.
+- `/prefix` is matched as a prefix of the path inside the service (after a prefix service's prefix is
+  stripped). The longest prefix wins, and a named method beats `*` on the same prefix.
+- `rate` is `N` or `N/s` per second, `N/m` per minute or `N/h` per hour, per client.
+- At most 50 rules per service.
+
+Rules are checked after the per-service limit and skipped for open paths (`/robots.txt` and friends)
+and trusted IPs. A rejected request is a `429` logged as `rate_limited:path <rule>`. The rules are
+validated on save and shown in the service's View modal.
+
+## Connections per client
+
+`--max-conns-per-ip` (default `256`) caps the concurrent TCP connections one client can hold. A
+connection over the cap is closed at accept, before TLS, so a single client can't exhaust file
+descriptors with idle or slow connections. IPv6 clients share one cap per /64. Trusted proxies,
+Cloudflare peers, loopback and [trusted IPs](/docs/security/blocking#trusted-ips) are exempt; HTTP/3
+and the `--admin-listen` listener are not capped. Set it to `0` to turn it off. Refused connections
+are counted in `palisade_conns_refused_total`.
+
+HTTP/2 and HTTP/3 connections allow at most 100 concurrent streams each.
+
 ## Login paths
 
 Services with [login protection](/docs/security/login-protection) get a separate, fixed limiter on
@@ -68,7 +102,8 @@ non-`GET`/`HEAD` requests only and logs as `rate_limited:login`.
 
 ## Trusted IPs
 
-Addresses on the [trusted IPs](/docs/security/blocking#trusted-ips) list skip both rate limiters.
+Addresses on the [trusted IPs](/docs/security/blocking#trusted-ips) list skip the global, per-service
+and per-path limiters.
 
 ## Ordering
 
