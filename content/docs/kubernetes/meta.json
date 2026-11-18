@@ -1,0 +1,5 @@
+{
+  "title": "Kubernetes",
+  "description": "Run Palisade on Kubernetes with the Helm chart: install, networking, TLS, monitoring and data.",
+  "pages": ["helm", "networking", "tls", "monitoring", "data"]
+}

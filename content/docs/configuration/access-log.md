@@ -22,12 +22,19 @@ directory is owned by the service user:
 
 | Flag | Default | Description |
 |---|---|---|
-| `--access-log` | *(empty)* | File path. Empty disables the writer entirely. |
+| `--access-log` | *(empty)* | File path, or `-` for stdout (no rotation). Empty disables the writer entirely. |
 | `--access-log-max-size-mb` | `100` | Rotate after the file reaches this size. |
 | `--access-log-max-backups` | `5` | How many rotated files (`access.log.1`, `.2`, …) to keep before the oldest is pruned. |
 
 The built-in writer handles rotation. The SQLite log follows the same approach through
 `palisade prune` and a systemd timer, so neither log requires an external rotation tool.
+
+## Writing to stdout
+
+`--access-log -` (v3.4.0+) writes the same lines to stdout instead of a file, with no rotation. Server
+messages stay on stderr, so container log tooling (`docker logs`, `kubectl logs`, Fluent Bit,
+Promtail, Vector) can split the two by stream. The Helm chart turns this on with
+`accessLog.stdout: true` ([Kubernetes → Access log](/docs/kubernetes/monitoring#access-log)).
 
 ## Format notes
 

@@ -1,8 +1,8 @@
 ---
 sidebar_position: 2
 title: Installation
-description: Four ways to install — the one-line installer, building from source, pre-built release binaries, or the published Docker image.
-keywords: [installation, install script, docker, systemd, ghcr, one-line installer]
+description: Five ways to install — the one-line installer, building from source, pre-built release binaries, the published Docker image, or the Helm chart on Kubernetes.
+keywords: [installation, install script, docker, systemd, ghcr, one-line installer, kubernetes, helm]
 ---
 
 
@@ -157,3 +157,12 @@ written at runtime lives under `/data`:
 docker compose run --rm waf setup --db /data/waf.db --admin-email you@example.com
 docker compose up --build
 ```
+
+## Option E — Kubernetes (Helm)
+
+```bash
+helm install waf oci://ghcr.io/sinhaparth5/charts/palisade -n palisade --create-namespace
+```
+
+Runs one pod with the database on a persistent volume. See [Installing with Helm](/docs/kubernetes/helm)
+for Secrets, TLS, networking and production values.

@@ -4,6 +4,7 @@
     "intro",
     "overview",
     "installation",
+    "kubernetes",
     "configuration",
     "security",
     "troubleshooting",

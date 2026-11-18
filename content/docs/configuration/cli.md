@@ -33,7 +33,7 @@ Start the WAF/proxy/dashboard by running the binary with any of these flags:
 | `--max-conns-per-ip` | `256` | Maximum concurrent TCP connections per client (IPv6 keyed by /64). Connections over the cap are closed at accept, before TLS. Trusted proxies, Cloudflare, loopback and trusted IPs are exempt. `0` = off. |
 | `--tls-cert` | *(empty)* | PEM certificate file for the HTTPS fallback (self-signed). |
 | `--tls-key` | *(empty)* | Matching PEM private key for `--tls-cert`. |
-| `--access-log` | *(empty)* | nginx-combined-format access log file path. Empty = disabled. `install.sh` sets it to `/var/log/palisade/access.log`. See [Access Log](/docs/configuration/access-log). |
+| `--access-log` | *(empty)* | nginx-combined-format access log file path, or `-` for stdout without rotation. Empty = disabled. `install.sh` sets it to `/var/log/palisade/access.log`. See [Access Log](/docs/configuration/access-log). |
 | `--access-log-max-size-mb` | `100` | Rotate the access log after it reaches this many MB. |
 | `--access-log-max-backups` | `5` | Number of rotated access log files (`access.log.1`, `.2`, …) to keep. |
 
