@@ -42,6 +42,8 @@ scrape_configs:
 | `palisade_stage_duration_seconds` | Histogram | `stage` | Time spent per pipeline stage: `enrich` (ASN/bot/TLS/threat-score lookups), `blocklist` (IP + geo), `challenge`, `ratelimit`, `waf`, `proxy` (backend round trip). A request only counts toward the stages it reached. |
 | `palisade_backend_up` | Gauge | `app`, `backend` | `1` while a backend is in rotation, `0` while it is marked down. See [health checks](/docs/configuration/services#multiple-backends-and-health-checks). |
 | `palisade_cache_results_total` | Counter | `app`, `result` | Requests to [Varnish-cached](/docs/configuration/varnish) services by result (`hit`, `miss`, `pass`). |
+| `palisade_clamd_errors_total` | Counter | — | Upload [malware scans](/docs/security/waf#malware-scan) that failed open: clamd unreachable, timed out, busy or over its stream limit. |
+| `palisade_crowdsec_push_errors_total` | Counter | — | Failed attempts to [push autobans to CrowdSec](/docs/security/threat-intel-webhooks#pushing-autobans-to-crowdsec), plus bans dropped from a full queue. |
 
 Plus the standard Go runtime/process metrics (`go_*`, `process_*`) that `promhttp.Handler()` exposes
 automatically.

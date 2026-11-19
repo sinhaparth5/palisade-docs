@@ -2,7 +2,7 @@
 sidebar_position: 5
 title: Threat Intel & Webhooks
 description: Auto-sync external IP blocklists or a CrowdSec LAPI into the blocklist, and forward signed request events to a webhook asynchronously.
-keywords: [threat intel, webhooks, slack, discord, ip blocklist sync, crowdsec, lapi, hmac]
+keywords: [threat intel, webhooks, slack, discord, ip blocklist sync, crowdsec, lapi, crowdsec alerts, autoban push, hmac]
 ---
 
 
@@ -40,6 +40,28 @@ Intel page with a label, the LAPI URL (for example `http://127.0.0.1:8080`) and 
 
 The bouncer key is encrypted with the other secrets, never shown again, and deleted with the
 source.
+
+### Pushing autobans to CrowdSec
+
+Since v3.4.1, Palisade can also report its own [autobans](/docs/security/blocking#automatic-ip-banning) to the LAPI, so
+other bouncers on the same CrowdSec block those IPs too. Register a machine on your CrowdSec host:
+
+```bash
+cscli machines add palisade --password '<a strong password>'
+```
+
+and fill in the optional **Machine login** and **Machine password** fields when you add the CrowdSec
+LAPI source. With them set:
+
+- Every autoban is sent as a `palisade/autoban` alert with one `ban` decision lasting the autoban's
+  ban length (a permanent autoban becomes a 10-year ban).
+- Pushing never slows down a ban. Bans are queued (up to 1000) and sent in batches by one background
+  worker that retries with backoff. A failed attempt, or a ban dropped from a full queue, counts in
+  `palisade_crowdsec_push_errors_total`.
+- IPs that came from that CrowdSec source are never pushed back to it.
+
+The machine credentials are encrypted with the other secrets and deleted with the source. Without
+them, the source only pulls decisions as before.
 
 ## Webhook event delivery
 

@@ -2,7 +2,7 @@
 sidebar_position: 1
 title: WAF Inspection
 description: Coraza v3 with the OWASP Core Rule Set compiled in, plus virtual patches, custom rules, rule exceptions, and opt-in response inspection.
-keywords: [waf inspection, coraza, owasp crs, multipart upload limit, body size, sql injection, xss, rce, virtual patching, cve, custom rules, response inspection]
+keywords: [waf inspection, coraza, owasp crs, multipart upload limit, body size, malware scan, clamav, clamd, antivirus, sql injection, xss, rce, virtual patching, cve, custom rules, response inspection]
 ---
 
 
@@ -88,6 +88,34 @@ The WAF holds the whole body **in memory** while it checks it, so a high limit c
 upload in flight. Very large uploads (long videos) are still out of reach; for those, use a separate
 service with the [request policy](/docs/security/api-protection#request-policy) and an uninspected
 content type.
+
+### Malware scan
+
+Since v3.4.1, Palisade can send each file in a form upload to [ClamAV](https://www.clamav.net). Start
+it with `--clamd` pointing at a clamd (`tcp://clamav:3310` or `unix:///run/clamd/clamd.sock`), then
+set **Malware scan** on a service's **Uploads** tab (or `malware_scan` in the
+[REST API](/docs/configuration/rest-api)):
+
+| Mode | Effect |
+|---|---|
+| Off | No scan (the default). |
+| Log only | The upload goes through and is logged as `malware_upload:log <signature>`. |
+| Block | The upload is refused with `403` and logged as `malware_upload <signature>`. |
+
+The scan runs after the WAF and the leaked-password check, on `multipart/form-data` bodies the WAF
+buffered. Each file part is streamed to clamd straight from that buffer, with no extra copy in
+memory. Requests from trusted IPs are not scanned. A detection, logged or blocked, counts as a
+critical event in [autoban](/docs/security/blocking#scoring).
+
+The scan **fails open**. If clamd is down, busy, too slow (2 seconds plus the file size at 16 MiB/s),
+the file is over clamd's `StreamMaxLength` (100M by default) or the body can't be parsed, the upload
+goes through, is logged as `malware_scan_error` and counts in `palisade_clamd_errors_total`. Alert on
+that counter if a missed scan matters to you.
+
+To run clamd next to Palisade with Docker Compose, uncomment the `clamav` service and the `--clamd`
+command in the repository's `compose.yml`. On Kubernetes, use the chart's
+[ClamAV sidecar](/docs/kubernetes/helm#clamav-sidecar). clamd keeps its signatures in memory, about
+1.2 GiB, and takes about a minute to load them at startup; uploads pass unscanned until then.
 
 ### Slow bodies
 

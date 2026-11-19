@@ -59,6 +59,7 @@ global block rule and the blocklist is hot-reloaded. Bans expire after the confi
 | Event | Points |
 |---|---|
 | WAF block — critical class (SQLi, RCE, XSS, LFI, RFI rules, and every [virtual patch](/docs/security/waf#virtual-patches)) | **5** |
+| [Malware upload](/docs/security/waf#malware-scan) (logged or blocked) | **5** |
 | WAF block — other rule | **2** |
 | [Leaked password](/docs/security/login-protection#leaked-password-check) on a login path (logged or blocked) | **2** |
 | Rate-limited | **1** |

@@ -75,7 +75,13 @@ validation and hot-reload behavior are identical to using the UI.
 | `bot_mode` | string | `inherit`, `always` or `off`. |
 | `allow_large_js_uploads`, `http3_enabled`, `compress_enabled` | bool | Per-service toggles. |
 | `multipart_limit_mb` | int | Multipart upload limit in MiB. `0` = the 12.5 MiB default, at most `256`. See [Request body size limits](/docs/security/waf#request-body-size-limits). |
+| `malware_scan` | string | `""` (off), `log` or `block`. Needs `--clamd`. See [Malware scan](/docs/security/waf#malware-scan). |
 | `request_schema`, `schema_mode` | string | JSON Schema text and `off`/`log`/`enforce`. |
+
+On a service [created from Docker labels](/docs/configuration/services#services-from-docker-labels),
+a `PUT` that sets any routing field (`name`, `host`, `host_aliases`, `canonical_host`, `prefix`,
+`backend`, `backends`, `lb_policy`, `health_path`, `health_interval`) returns `409`. The other fields
+work as usual.
 
 ### IP rules
 

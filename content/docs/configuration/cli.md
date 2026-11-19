@@ -31,6 +31,8 @@ Start the WAF/proxy/dashboard by running the binary with any of these flags:
 | `--admin-allow` | *(empty)* | Comma-separated IPs or CIDRs allowed to reach `/admin` (dashboard, REST API, metrics). Requests from any other client get the normal proxy pipeline, so the admin UI looks absent. Invalid entries stop startup. See [Restricting the admin UI](#restricting-the-admin-ui). |
 | `--admin-listen` | *(empty)* | Extra plain-HTTP listener, e.g. `127.0.0.1:9090`, that serves only the admin UI. When set, the admin UI is removed from the public listeners. |
 | `--max-conns-per-ip` | `256` | Maximum concurrent TCP connections per client (IPv6 keyed by /64). Connections over the cap are closed at accept, before TLS. Trusted proxies, Cloudflare, loopback and trusted IPs are exempt. `0` = off. |
+| `--clamd` | *(empty)* | clamd address for the per-service upload malware scan: `tcp://host:port` or `unix:///path`. Empty = off. See [Malware scan](/docs/security/waf#malware-scan). |
+| `--docker-discovery` | *(empty)* | Docker API to create services from container labels: `unix:///var/run/docker.sock` or `tcp://socket-proxy:2375`. Empty = off. See [Services from Docker labels](/docs/configuration/services#services-from-docker-labels). |
 | `--tls-cert` | *(empty)* | PEM certificate file for the HTTPS fallback (self-signed). |
 | `--tls-key` | *(empty)* | Matching PEM private key for `--tls-cert`. |
 | `--access-log` | *(empty)* | nginx-combined-format access log file path, or `-` for stdout without rotation. Empty = disabled. `install.sh` sets it to `/var/log/palisade/access.log`. See [Access Log](/docs/configuration/access-log). |

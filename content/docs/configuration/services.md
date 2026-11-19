@@ -1,8 +1,8 @@
 ---
 sidebar_position: 3
 title: Services & Load Balancing
-description: Route traffic to backends, spread it across several with health checks, serve extra hostnames, compress responses, and put a service in maintenance or behind a waiting room.
-keywords: [services, reverse proxy, rename service, self-signed backend, private ca, certificate pinning, load balancing, health checks, round robin, least connections, host aliases, canonical redirect, compression, zstd, gzip, maintenance mode, waiting room]
+description: Route traffic to backends, spread it across several with health checks, create services from Docker labels, serve extra hostnames, compress responses, and put a service in maintenance or behind a waiting room.
+keywords: [services, reverse proxy, docker labels, docker discovery, container labels, docker socket proxy, rename service, self-signed backend, private ca, certificate pinning, load balancing, health checks, round robin, least connections, host aliases, canonical redirect, compression, zstd, gzip, maintenance mode, waiting room]
 ---
 
 
@@ -94,6 +94,70 @@ rules and rule feedback move to the new name in one transaction, and its WAF eng
 request logs keep the old name. Uploaded certificates and keys live under
 `certs/services/by-id/<id>/`, so a renamed service and a new service with its old name never share
 files (uploads from older versions under `certs/services/<name>/` keep working).
+
+## Services from Docker labels
+
+Since v3.4.1, Palisade can create services from the labels of running Docker containers. Start it
+with `--docker-discovery` pointing at a Docker API, then label each container you want proxied:
+
+```yaml
+services:
+  app:
+    image: ghcr.io/example/app
+    labels:
+      palisade.enable: "true"
+      palisade.host: app.example.com,www.app.example.com
+      palisade.port: "8080"
+```
+
+| Label | Required | Meaning |
+|---|---|---|
+| `palisade.enable` | yes | Must be `true`. Other containers are ignored. |
+| `palisade.host` | one of host/prefix | Comma-separated hostnames. The first is the host, the rest become [extra hostnames](#extra-hostnames). |
+| `palisade.prefix` | one of host/prefix | Path prefix, starting with `/`. |
+| `palisade.port` | yes | Port the app listens on inside the container. |
+| `palisade.name` | no | Service name. Defaults to the container name. Containers with the same name become backends of one service. |
+| `palisade.network` | when on several networks | The Docker network Palisade shares with the container. |
+
+The backend is `http://<container IP on that network>:<port>`, so Palisade and the container must
+share a network. Palisade syncs at startup, when a labelled container starts, stops, pauses or is
+removed (batched over one second, so one `docker compose up` is one sync), and every 5 minutes.
+Each change goes through the same host and backend checks as a dashboard save, is written to the
+audit log as actor `docker discovery`, and takes effect without a restart. A container with bad
+labels is skipped and the reason logged (`docker discovery: container …`).
+
+A Docker-managed service shows a **docker** tag in the services list:
+
+- Its name, hosts, prefix, backends, load balancing and health checks come from the labels. The
+  dashboard refuses to change them, and a REST API `PUT /services/:id` touching them returns `409`.
+  Change the labels instead.
+- Every other setting (WAF, rate limits, bot mode, uploads, cache, …) is yours to edit and survives
+  re-syncs.
+- When no container is running, the service and its settings are kept but it has no backend, so
+  requests get a `502` and the list shows "no running container". Delete the service by hand if the
+  app is gone for good.
+- A service you created by hand is never taken over. If a label name clashes with one, the container
+  is skipped until you set a different `palisade.name`.
+
+:::warning
+Access to the Docker socket is root on the host. Don't mount `/var/run/docker.sock` into Palisade.
+Run a socket proxy that exposes only the read-only container list and events, and point
+`--docker-discovery` at it:
+
+```yaml
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    environment:
+      CONTAINERS: 1
+      EVENTS: 1
+      POST: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+```
+
+with `--docker-discovery tcp://docker-proxy:2375`. The repository's `compose.yml` has this wiring
+commented out, ready to enable.
+:::
 
 ## Extra hostnames
 

@@ -158,6 +158,10 @@ docker compose run --rm waf setup --db /data/waf.db --admin-email you@example.co
 docker compose up --build
 ```
 
+`compose.yml` also has two optional services, commented out: a `clamav` service for the
+[upload malware scan](/docs/security/waf#malware-scan), and a Docker socket proxy for
+[services from container labels](/docs/configuration/services#services-from-docker-labels).
+
 ## Option E — Kubernetes (Helm)
 
 ```bash

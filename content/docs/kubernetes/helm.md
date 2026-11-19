@@ -149,6 +149,34 @@ metrics:
 The pod runs as UID/GID 65532 with a read-only root filesystem, dropped capabilities and the
 `RuntimeDefault` seccomp profile. Every write goes to `/data`.
 
+## ClamAV sidecar
+
+For the per-service [malware scan](/docs/security/waf#malware-scan), set `clamav.enabled: true`. The
+chart runs clamd and freshclam from the official `clamav/clamav` image as a sidecar and starts
+Palisade with `--clamd=unix:///run/clamd/clamd.sock`. Then set **Malware scan** to Log only or Block
+on a service's Uploads tab.
+
+```yaml
+clamav:
+  enabled: true
+  checks: 12   # signature update checks per day
+  resources:
+    requests: {cpu: 100m, memory: 1536Mi}
+    limits: {memory: 2Gi}
+```
+
+- clamd listens only on a socket in an `emptyDir` both containers mount, never on the pod network.
+- The sidecar runs as the image's `clamav` user (uid 100) with a read-only root filesystem.
+- Signatures download when the pod starts, which takes about a minute. Until clamd is ready, and
+  while a crashed clamd restarts, uploads pass unscanned and are logged as `malware_scan_error`.
+- The signatures take about 1.2 GiB of memory. Reloads happen in place, so the peak doesn't double.
+
+To check it with the EICAR test file:
+
+```sh
+kubectl -n palisade exec deploy/waf-palisade -c clamav -- sh -c 'printf "%s" "X5O!P%@AP[4\PZX54(P^)7CC)7}\$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!\$H+H*" > /tmp/e.com && clamdscan --config-file=/tmp/clamd.conf --stream /tmp/e.com'
+```
+
 ## Sizing recommendations
 
 These are the numbers we measured and the sizes we recommend from them. Treat them as a starting
@@ -162,6 +190,7 @@ point and adjust them to your own traffic.
 - **Uploads:** an upload being inspected is held fully in memory, up to 12.5 MiB by default (up to
   256 MiB if you raise a service's limit). Plan for concurrent uploads × that limit.
 - **Varnish sidecar (optional):** its cache size (256 MiB by default) plus about 100 MiB.
+- **ClamAV sidecar (optional):** about 1.2 GiB for the signatures; the chart's limit is 2 GiB.
 
 **Suggested sizing:**
 
