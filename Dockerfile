@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:24-bookworm-slim AS base
+FROM node:24.22.3-bookworm-slim AS base
 
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
@@ -29,7 +29,7 @@ RUN corepack prepare pnpm@11.13.1 --activate \
   && pnpm postinstall \
   && pnpm build
 
-FROM node:24-bookworm-slim AS runner
+FROM node:24.22.3-bookworm-slim AS runner
 
 WORKDIR /app
 
