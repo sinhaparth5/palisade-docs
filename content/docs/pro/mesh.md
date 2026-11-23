@@ -98,7 +98,7 @@ Only admin devices reach the admin UI on the mesh. A backend agent can't.
 
 ## Cluster replicas over the mesh
 
-A [cluster](/docs/pro) replica can sync from the primary over the mesh, so the primary's admin UI
+A [cluster](/docs/pro#cluster) replica can sync from the primary over the mesh, so the primary's admin UI
 needn't be reachable from the replica's network.
 
 1. On the **primary**, add an admin device for the replica (as above) and copy its token.
